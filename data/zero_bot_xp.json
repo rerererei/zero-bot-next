@@ -1,0 +1,49 @@
+{
+  "data": {
+    "1330524032587796480": {
+      "908983232547139624": {
+        "voice_xp": 28.259999999999973,
+        "text_xp": 0.0
+      },
+      "1327143285998747722": {
+        "voice_xp": 28.439999999999973,
+        "text_xp": 33.0
+      },
+      "953562640142196736": {
+        "voice_xp": 12.240000000000009,
+        "text_xp": 1.0
+      }
+    }
+  },
+  "meta": {
+    "1330524032587796480": {
+      "908983232547139624": {
+        "total_time": 4740.0,
+        "solo_time": 0.0,
+        "small_group_time": 4740.0,
+        "mid_group_time": 0.0,
+        "big_group_time": 0.0,
+        "muted_time": 60.0,
+        "max_member_count": 2
+      },
+      "1327143285998747722": {
+        "total_time": 4740.0,
+        "solo_time": 0.0,
+        "small_group_time": 4740.0,
+        "mid_group_time": 0.0,
+        "big_group_time": 0.0,
+        "muted_time": 0.0,
+        "max_member_count": 2
+      },
+      "953562640142196736": {
+        "total_time": 3060.0,
+        "solo_time": 3060.0,
+        "small_group_time": 0.0,
+        "mid_group_time": 0.0,
+        "big_group_time": 0.0,
+        "muted_time": 0.0,
+        "max_member_count": 1
+      }
+    }
+  }
+}
