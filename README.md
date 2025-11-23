@@ -10,3 +10,4 @@ sudo dnf install python3.9 python3.9-pip git -y
 python3.9 --version
 ```
 
+test
