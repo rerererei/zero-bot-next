@@ -1,6 +1,6 @@
 # data/backends/dynamo_store.py
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional 
 import boto3
 from boto3.dynamodb.conditions import Key
 from decimal import Decimal
@@ -145,10 +145,6 @@ class DynamoStore:
     # =============================
     #    RankCard 背景キー
     # =============================
-    def get_rank_bg_key(self, gid: int, uid: int) -> str | None:
-        """
-        ユーザーごとの RankCard 背景キー（例: 'default.png'）を取得する。
-        未設定の場合は None を返す。
-        """
+    def get_rank_bg_key(self, gid: int, uid: int) -> Optional[str]:
         item = self._get_item(gid, uid)
         return item.get("rank_bg_key")

@@ -1,5 +1,5 @@
 # data/store.py
-from typing import Dict
+from typing import Dict, Optional
 
 # from data.backends.json_store import JsonStore
 # from data.backends.memory_store import MemoryStore
@@ -72,8 +72,5 @@ def calc_level_from_xp(xp: float) -> tuple[int, float, float]:
     # remaining がそのレベルの中で貯まっているXP
     return level, remaining, need
 
-def get_rank_bg_key(gid: int, uid: int) -> str | None:
-    """
-    RankCard 用の背景キー（例: 'default.png'）を Dynamo から取得する。
-    """
+def get_rank_bg_key(gid: int, uid: int) -> Optional[str]:
     return store.get_rank_bg_key(gid, uid)
