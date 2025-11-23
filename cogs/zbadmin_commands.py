@@ -35,6 +35,9 @@ def _pct(part: float, whole: float) -> str:
         return "0.0%"
     return f"{part / whole * 100:.1f}%"
 
+def _fmt_minutes(mins: float) -> str:
+    """分（float）→ 『○分』表記にする"""
+    return f"{int(mins)}分"
 
 class ZBAdmin(commands.Cog):
     """管理者専用コマンドグループ"""
@@ -146,10 +149,21 @@ class ZBAdmin(commands.Cog):
         muted = float(meta.get("muted_time", 0))
         max_count = int(meta.get("max_member_count", 0))
 
+        # ★ 時間帯バケット（0〜23時）を取得
+        hour_buckets = meta.get("hour_buckets", [0.0] * 24)
+        if not isinstance(hour_buckets, list) or len(hour_buckets) != 24:
+            hour_buckets = [0.0] * 24
+
+        # 0〜6, 6〜12, 12〜18, 18〜24（単位：分）
+        min_0_6   = sum(hour_buckets[0:6])
+        min_6_12  = sum(hour_buckets[6:12])
+        min_12_18 = sum(hour_buckets[12:18])
+        min_18_24 = sum(hour_buckets[18:24])
+
         # ===== Embed 整形 =====
         embed = discord.Embed(
             title=f"ボイス統計：{target.display_name}",
-            description="VC滞在時間のざっくり統計だよ 📊",
+            description="VC滞在時間の詳細情報",
             color=discord.Color.blue(),
         )
 
@@ -190,11 +204,22 @@ class ZBAdmin(commands.Cog):
             inline=True,
         )
 
-        await interaction.response.send_message(
-            embed=embed,
-            ephemeral=False,  # 管理用なのでとりあえず非公開
+        # ★ ここで時間帯ごとの「何分」をまとめて表示
+        embed.add_field(
+            name="⏰ 時間帯別滞在時間（合計）",
+            value=(
+                f"0〜 6時 : {_fmt_minutes(min_0_6)}\n"
+                f"6〜12時 : {_fmt_minutes(min_6_12)}\n"
+                f"12〜18時: {_fmt_minutes(min_12_18)}\n"
+                f"18〜24時: {_fmt_minutes(min_18_24)}"
+            ),
+            inline=False,
         )
 
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=False,
+        )
 
 async def setup(bot):
     await bot.add_cog(ZBAdmin(bot))

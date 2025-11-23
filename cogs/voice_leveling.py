@@ -1,4 +1,5 @@
 from discord.ext import commands, tasks
+from datetime import datetime, timezone, timedelta 
 
 from data.store import (
     add_voice_xp,
@@ -7,6 +8,7 @@ from data.store import (
     update_voice_meta,    # ★ 追加
 )
 
+JST = timezone(timedelta(hours=9))
 
 def calc_voice_xp_per_minute(member_count: int, is_muted: bool) -> float:
     """
@@ -99,6 +101,22 @@ class VoiceLeveling(commands.Cog):
                         meta.get("max_member_count", 0),
                         member_count,
                     )
+
+                    # ★★★ ここから「時間帯バケツ」ロジック ★★★
+                    TICK_SECONDS = 60
+                    TICK_MINUTES = TICK_SECONDS / 60  # 今は 1.0 分
+
+                    hour_buckets = meta.get("hour_buckets")
+                    if not isinstance(hour_buckets, list) or len(hour_buckets) != 24:
+                        hour_buckets = [0.0] * 24
+
+                    now = datetime.now(JST)
+                    current_hour = now.hour  # 0〜23
+
+                    # ★ ここを『秒』ではなく『分』でカウント
+                    hour_buckets[current_hour] += TICK_MINUTES   # 1分ずつ増えていく
+                    meta["hour_buckets"] = hour_buckets
+                    # ★★★ ここまで ★★★
 
                     # ★ 変更を保存（Json に書き戻し）
                     update_voice_meta(guild.id, member.id, meta)
