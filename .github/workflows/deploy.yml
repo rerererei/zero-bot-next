@@ -29,4 +29,5 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd /home/ec2-user/zero-bot-next
+            chmod +x deploy.sh     # ← 毎回実行権限を付与！
             ./deploy.sh
