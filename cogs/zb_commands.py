@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from cogs.zb_rank import generate_rank_card 
+from utils.rankcard_draw import generate_rank_card 
 
 from data.store import (
     get_voice_xp,

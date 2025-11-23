@@ -141,3 +141,14 @@ class DynamoStore:
         elif isinstance(value, list):
             return [_to_decimal(v) for v in value]
         return value
+    
+    # =============================
+    #    RankCard 背景キー
+    # =============================
+    def get_rank_bg_key(self, gid: int, uid: int) -> str | None:
+        """
+        ユーザーごとの RankCard 背景キー（例: 'default.png'）を取得する。
+        未設定の場合は None を返す。
+        """
+        item = self._get_item(gid, uid)
+        return item.get("rank_bg_key")
