@@ -70,26 +70,36 @@ class JsonStore(BaseStore):
         # ★ Meta（統計）ここを更新
         raw_meta = raw.get("meta", {})
         self.meta = {}
+
         for gid, users in raw_meta.items():
             gid_int = int(gid)
             self.meta[gid_int] = {}
+
             for uid, m in users.items():
                 uid_int = int(uid)
-                # 既存フィールド
-                total_time = float(m.get("total_time", 0))
-                solo_time = float(m.get("solo_time", 0))
-                small_group_time = float(m.get("small_group_time", 0))
-                mid_group_time = float(m.get("mid_group_time", 0))
-                big_group_time = float(m.get("big_group_time", 0))
-                muted_time = float(m.get("muted_time", 0))
+
+                total_time = float(m.get("total_time", 0.0))
+                solo_time = float(m.get("solo_time", 0.0))
+                small_group_time = float(m.get("small_group_time", 0.0))
+                mid_group_time = float(m.get("mid_group_time", 0.0))
+                big_group_time = float(m.get("big_group_time", 0.0))
+                muted_time = float(m.get("muted_time", 0.0))
                 max_member_count = int(m.get("max_member_count", 0))
 
-                # ★ 新フィールド: hour_buckets（長さ24のリスト）
+                # hour_buckets（既に入れてると思うけど一応）
                 hb = m.get("hour_buckets")
                 if isinstance(hb, list) and len(hb) == 24:
                     hour_buckets = [float(x) for x in hb]
                 else:
                     hour_buckets = [0.0] * 24
+
+                # ★ ここが新規：pair_time を読む
+                raw_pair = m.get("pair_time", {})
+                pair_time = {}
+                if isinstance(raw_pair, dict):
+                    for k, v in raw_pair.items():
+                        # key は文字列IDにそろえておく
+                        pair_time[str(k)] = float(v)
 
                 self.meta[gid_int][uid_int] = {
                     "total_time": total_time,
@@ -100,34 +110,39 @@ class JsonStore(BaseStore):
                     "muted_time": muted_time,
                     "max_member_count": max_member_count,
                     "hour_buckets": hour_buckets,
+                    "pair_time": pair_time,  # ★ ここ
                 }
 
     def _save(self):
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-
-        raw = {
-            "data": {
-                str(gid): {
-                    str(uid): {
-                        "voice_xp": stats["voice_xp"],
-                        "text_xp": stats["text_xp"],
-                    }
-                    for uid, stats in users.items()
+        out_data = {}
+        for gid, users in self.data.items():
+            out_data[str(gid)] = {}
+            for uid, stats in users.items():
+                out_data[str(gid)][str(uid)] = {
+                    "voice_xp": stats.get("voice_xp", 0.0),
+                    "text_xp": stats.get("text_xp", 0.0),
                 }
-                for gid, users in self.data.items()
-            },
 
-            "meta": {
-                str(gid): {
-                    str(uid): self.meta[gid][uid]
-                    for uid in users
+        out_meta = {}
+        for gid, users in self.meta.items():
+            out_meta[str(gid)] = {}
+            for uid, m in users.items():
+                out_meta[str(gid)][str(uid)] = {
+                    "total_time": m.get("total_time", 0.0),
+                    "solo_time": m.get("solo_time", 0.0),
+                    "small_group_time": m.get("small_group_time", 0.0),
+                    "mid_group_time": m.get("mid_group_time", 0.0),
+                    "big_group_time": m.get("big_group_time", 0.0),
+                    "muted_time": m.get("muted_time", 0.0),
+                    "max_member_count": m.get("max_member_count", 0),
+                    "hour_buckets": m.get("hour_buckets", [0.0] * 24),
+                    "pair_time": m.get("pair_time", {}),  # ★ ここ
                 }
-                for gid, users in self.meta.items()
-            }
-        }
+
+        obj = {"data": out_data, "meta": out_meta}
 
         with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(raw, f, ensure_ascii=False, indent=2)
+            json.dump(obj, f, ensure_ascii=False, indent=2)
 
     # -----------------------------
     # XP 操作
@@ -140,14 +155,15 @@ class JsonStore(BaseStore):
         mg.setdefault(
             user_id,
             {
-                "total_time": 0,
-                "solo_time": 0,
-                "small_group_time": 0,
-                "mid_group_time": 0,
-                "big_group_time": 0,
-                "muted_time": 0,
+                "total_time": 0.0,
+                "solo_time": 0.0,
+                "small_group_time": 0.0,
+                "mid_group_time": 0.0,
+                "big_group_time": 0.0,
+                "muted_time": 0.0,
                 "max_member_count": 0,
-                "hour_buckets": [0.0] * 24,  # ★ ここ追加
+                "hour_buckets": [0.0] * 24,
+                "pair_time": {},          # ★ ここ追加
             },
         )
         return u

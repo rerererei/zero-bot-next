@@ -1,15 +1,17 @@
+# cogs/voice_leveling.py
+
 from discord.ext import commands, tasks
-from datetime import datetime, timezone, timedelta 
+from datetime import datetime, timezone, timedelta
 
 from data.store import (
     add_voice_xp,
     get_guild_user_stats,
-    get_voice_meta,       # ★ 追加
-    update_voice_meta,    # ★ 追加
+    get_voice_meta,      # 統計メタ情報の取得（JsonStore 経由）
+    update_voice_meta,   # 統計メタ情報の更新（JsonStore 経由）
 )
 
-JST = timezone(timedelta(hours=9))
 
+# ===== XP計算ロジック =====
 def calc_voice_xp_per_minute(member_count: int, is_muted: bool) -> float:
     """
     1分あたりのボイスXPを計算する。
@@ -33,8 +35,12 @@ def calc_voice_xp_per_minute(member_count: int, is_muted: bool) -> float:
     return base * bonus * mute_factor
 
 
+# タイムゾーン（JSTで集計したい場合）
+JST = timezone(timedelta(hours=9))
+
+
 class VoiceLeveling(commands.Cog):
-    """VCレベリング"""
+    """VCレベリング & 統計"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -49,11 +55,17 @@ class VoiceLeveling(commands.Cog):
 
     @tasks.loop(seconds=60)
     async def voice_snapshot_loop(self):
-        """60秒ごとにVC参加者にXP&統計を付与"""
-        TICK_SECONDS = 60  # このループ間隔
+        """
+        60秒ごとにVC参加者にXP & 統計を付与する。
+        ★ このループでは「1分ごと」に処理しているので、
+           統計値（total_time など）はすべて『分』でカウントする。
+        """
+        TICK_SECONDS = 60
+        TICK_MINUTES = TICK_SECONDS / 60.0  # = 1.0 分
 
         for guild in self.bot.guilds:
             for vc in guild.voice_channels:
+                # Bot 以外の参加メンバーだけを見る
                 members = [m for m in vc.members if not m.bot]
                 if not members:
                     continue
@@ -76,36 +88,36 @@ class VoiceLeveling(commands.Cog):
                     xp = calc_voice_xp_per_minute(member_count, is_muted)
                     add_voice_xp(guild.id, member.id, xp)
 
-                    # ===== 統計カウント（JsonStore 側の meta を直接更新）=====
+                    # ===== 統計メタ情報の取得（JsonStore経由）=====
                     meta = get_voice_meta(guild.id, member.id)
+                    # ここで扱う値はすべて「分」単位で統一する
 
-                    # 総滞在時間
-                    meta["total_time"] = meta.get("total_time", 0) + TICK_SECONDS
+                    # --- 総滞在時間（分） ---
+                    meta["total_time"] = float(meta.get("total_time", 0.0)) + TICK_MINUTES
 
-                    # 人数帯ごとの時間
+                    # --- 人数帯ごとの時間（分） ---
                     if member_count == 1:
-                        meta["solo_time"] = meta.get("solo_time", 0) + TICK_SECONDS
+                        key = "solo_time"
                     elif 2 <= member_count <= 3:
-                        meta["small_group_time"] = meta.get("small_group_time", 0) + TICK_SECONDS
+                        key = "small_group_time"
                     elif 4 <= member_count <= 6:
-                        meta["mid_group_time"] = meta.get("mid_group_time", 0) + TICK_SECONDS
+                        key = "mid_group_time"
                     else:
-                        meta["big_group_time"] = meta.get("big_group_time", 0) + TICK_SECONDS
+                        key = "big_group_time"
 
-                    # ミュート時間
+                    meta[key] = float(meta.get(key, 0.0)) + TICK_MINUTES
+
+                    # --- ミュート状態の時間（分） ---
                     if is_muted:
-                        meta["muted_time"] = meta.get("muted_time", 0) + TICK_SECONDS
+                        meta["muted_time"] = float(meta.get("muted_time", 0.0)) + TICK_MINUTES
 
-                    # 同席人数の最大値
+                    # --- 同席人数の最大値 ---
                     meta["max_member_count"] = max(
-                        meta.get("max_member_count", 0),
+                        int(meta.get("max_member_count", 0)),
                         member_count,
                     )
 
-                    # ★★★ ここから「時間帯バケツ」ロジック ★★★
-                    TICK_SECONDS = 60
-                    TICK_MINUTES = TICK_SECONDS / 60  # 今は 1.0 分
-
+                    # --- 時間帯バケット（hour_buckets: 0〜23時, 単位: 分） ---
                     hour_buckets = meta.get("hour_buckets")
                     if not isinstance(hour_buckets, list) or len(hour_buckets) != 24:
                         hour_buckets = [0.0] * 24
@@ -113,15 +125,27 @@ class VoiceLeveling(commands.Cog):
                     now = datetime.now(JST)
                     current_hour = now.hour  # 0〜23
 
-                    # ★ ここを『秒』ではなく『分』でカウント
-                    hour_buckets[current_hour] += TICK_MINUTES   # 1分ずつ増えていく
+                    hour_buckets[current_hour] += TICK_MINUTES
                     meta["hour_buckets"] = hour_buckets
-                    # ★★★ ここまで ★★★
 
-                    # ★ 変更を保存（Json に書き戻し）
+                    # --- 一緒にいた相手ごとの滞在時間（pair_time: 単位: 分） ---
+                    pair_time = meta.get("pair_time")
+                    if not isinstance(pair_time, dict):
+                        pair_time = {}
+
+                    # 自分以外のメンバー全員分を加算
+                    others = [m for m in members if m.id != member.id]
+                    for other in others:
+                        oid = str(other.id)  # JSONに安全に載せるため文字列キーにしておく
+                        prev = float(pair_time.get(oid, 0.0))
+                        pair_time[oid] = prev + TICK_MINUTES
+
+                    meta["pair_time"] = pair_time
+
+                    # --- 変更をストアに保存 ---
                     update_voice_meta(guild.id, member.id, meta)
 
-        # 各ギルドごとの保存済みユーザー数を集計（Json/Dynamo でも同じ）
+        # 各ギルドごとの保存済みユーザー数を集計
         total_users = 0
         for guild in self.bot.guilds:
             stats = get_guild_user_stats(guild.id)  # { user_id: {voice_xp, text_xp} }
@@ -136,4 +160,3 @@ class VoiceLeveling(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(VoiceLeveling(bot))
-
