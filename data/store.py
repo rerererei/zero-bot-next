@@ -1,16 +1,17 @@
 # data/store.py
 from typing import Dict
 
-from data.backends.json_store import JsonStore
+# from data.backends.json_store import JsonStore
 # from data.backends.memory_store import MemoryStore
-# from data.backends.dynamo_store import DynamoStore
+from data.backends.dynamo_store import DynamoStore
 
 
 # =========================
 #  永続化バックエンド選択
 # =========================
 # 今は JSON 永続化を使う
-store = JsonStore("data/zero_bot_xp.json")
+# store = JsonStore("data/zero_bot_xp.json")
+store = DynamoStore(table_name="zero_bot_xp")
 # 将来 Dynamo にするときはここだけ変えるイメージ
 # store = DynamoStore(table_name="zero_bot_xp")
 
