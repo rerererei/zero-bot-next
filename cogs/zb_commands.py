@@ -7,7 +7,6 @@ from data.store import (
     get_voice_xp,
     get_text_xp,
     calc_level_from_xp,
-    get_voice_meta,
 )
 
 
