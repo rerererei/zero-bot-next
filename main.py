@@ -7,10 +7,11 @@ class ZeroBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.voice_states = True
-        intents.message_content = True  # ★ テキスト読むので有効化
+        intents.message_content = True  # テキストXP用
+        intents.members = True          # ⭐ 追加：VCメンバー取得用
 
         super().__init__(
-            command_prefix="ZB",  # prefixは今ほぼ使ってない
+            command_prefix="ZB",
             intents=intents,
         )
 
