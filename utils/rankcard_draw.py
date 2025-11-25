@@ -229,7 +229,7 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
     )
 
     # ユーザーID（任意ID用の位置）
-    id_y = name_y + 30
+    id_y = name_y + 35
     # ★ここを「任意で付けてもらうID」に差し替える
     # 例: custom_id = get_custom_id(guild_id, user_id) など
     id_text = f"ID: {user.name}"
@@ -261,7 +261,7 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
             fill=SMALL_TEXT_COLOR,
         )
         draw.text(
-            (lvl_x, lvl_y + 12),
+            (lvl_x, lvl_y + 15),
             str(lvl),
             font=font_lvl_num,
             fill=NAME_COLOR,
