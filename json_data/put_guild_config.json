@@ -1,0 +1,67 @@
+{
+  "TableName": "zero_bot_guild_config",
+  "Item": {
+    "guild_id": { "S": "1330524032587796480" },
+
+    "oyanmo": {
+      "M": {
+        "target_voice_channel_id": { "N": "0" },
+        "default_countdown_seconds": { "N": "10" },
+        "enable_countdown": { "BOOL": true },
+        "enable_stop_button": { "BOOL": true },
+        "allowed_role_ids": { "L": [] }
+      }
+    },
+
+    "leveling": {
+      "M": {
+        "voice_xp_per_min": { "N": "0.3" },
+        "text_xp_per_message": { "N": "5" },
+        "pair_multiplier": { "N": "1.2" },
+        "solo_multiplier": { "N": "0.8" },
+
+        "ignored_channel_ids": {
+          "L": [
+            { "S": "1443057544506642583" },
+            { "S": "1443057747615551610" }
+          ]
+        },
+
+        "ignored_category_ids": {
+          "L": [
+            { "S": "1443057355335012503" }
+          ]
+        },
+
+        "enable_voice_xp": { "BOOL": true },
+        "enable_text_xp": { "BOOL": true },
+        "cooldown_seconds_text": { "N": "10" }
+      }
+    },
+
+    "rankcard": {
+      "M": {
+        "default_bg_key": { "S": "default.png" },
+        "default_name_color": { "S": "#FFFFFF" },
+        "default_label_color": { "S": "#AAAAAA" }
+      }
+    },
+
+    "profile": {
+      "M": {
+        "message_source_channel_ids": {
+          "L": [
+            { "S": "1443058058615066624" }
+          ]
+        },
+        "delete_profile_on_leave": { "BOOL": true }
+      }
+    },
+
+    "logging": {
+      "M": {
+        "excluded_category_ids": { "L": [] }
+      }
+    }
+  }
+}
