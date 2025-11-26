@@ -9,6 +9,7 @@ import re
 from utils.helpers import normalize_text_channel_name
 from config import debug_log
 from data.guild_config_store import GuildConfigStore
+from typing import Optional
 
 jst = pytz.timezone("Asia/Tokyo")
 
@@ -30,7 +31,7 @@ class ChannelManager:
     # ==========================
     #   設定読み込み系
     # ==========================
-    def _get_voice_text_category_from_config(self, guild: discord.Guild) -> discord.CategoryChannel | None:
+    def _get_voice_text_category_from_config(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
         """
         guild_config.logging から、ボイス用テキストチャンネルを置くカテゴリを取得する。
         優先順位:

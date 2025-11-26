@@ -2,6 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from typing import Optional  # ← ★ 追加
+
 from utils.helpers import voice_users_autocomplete
 from utils.countdown import countdown_procedure, countdown_active
 from utils.messages import get_random_success_message
@@ -28,7 +30,7 @@ class OyanmoCog(commands.Cog):
 
     def _get_target_voice_channel(
         self, guild: discord.Guild
-    ) -> discord.VoiceChannel | None:
+    ) -> Optional[discord.VoiceChannel]: 
         """
         oyanmo 設定から target_voice_channel_id を取得して、
         実際の VoiceChannel オブジェクトに変換する。
