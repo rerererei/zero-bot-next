@@ -146,11 +146,14 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
     FONT_PATH_BOLD = "assets/fonts/NotoSansJP-Bold.ttf"
     FONT_PATH_AUDIO = "assets/fonts/Audiowide-Regular.ttf"
 
-    font_name = ImageFont.truetype(FONT_PATH_BOLD, 20)
-    font_small = ImageFont.truetype(FONT_PATH_MAIN, 16)
+    font_name = ImageFont.truetype(FONT_PATH_BOLD, 30)
+    font_id = ImageFont.truetype(FONT_PATH_MAIN, 16)
+    font_rank = ImageFont.truetype(FONT_PATH_MAIN, 20)
+    font_total = ImageFont.truetype(FONT_PATH_MAIN, 16)
+    font_bartext = ImageFont.truetype(FONT_PATH_MAIN, 16)
     font_label = ImageFont.truetype(FONT_PATH_AUDIO, 45)
     font_lvl_num = ImageFont.truetype(FONT_PATH_BOLD, 26)
-    font_lvl_text = ImageFont.truetype(FONT_PATH_MAIN, 12)
+    font_lvl_text = ImageFont.truetype(FONT_PATH_MAIN, 16)
 
     # ===== 左側：ユーザーアイコン =====
     avatar_size = AVATAR_SIZE  # ★アイコンの直径
@@ -226,14 +229,14 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
     )
 
     # ユーザーID（任意ID用の位置）
-    id_y = name_y + 30
+    id_y = name_y + 35
     # ★ここを「任意で付けてもらうID」に差し替える
     # 例: custom_id = get_custom_id(guild_id, user_id) など
     id_text = f"ID: {user.name}"
     draw.text(
         (content_left, id_y),
         id_text,
-        font=font_small,
+        font=font_id,
         fill=ID_COLOR,
     )
 
@@ -258,7 +261,7 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
             fill=SMALL_TEXT_COLOR,
         )
         draw.text(
-            (lvl_x, lvl_y + 12),
+            (lvl_x, lvl_y + 15),
             str(lvl),
             font=font_lvl_num,
             fill=NAME_COLOR,
@@ -279,11 +282,11 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
         draw.text(
             (info_left, top_y),
             rank_text,
-            font=font_small,
+            font=font_rank,
             fill=SMALL_TEXT_COLOR,
         )
 
-        total_bbox = draw.textbbox((0, 0), total_text, font=font_small)
+        total_bbox = draw.textbbox((0, 0), total_text, font=font_total)
         total_w = total_bbox[2] - total_bbox[0]
         # 右端から total_w を引いた位置からさらに RIGHT_PADDING 分だけ左にずらす
         total_x = content_right - total_w - RIGHT_PADDING
@@ -292,7 +295,7 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
         draw.text(
             (total_x, top_y),
             total_text,
-            font=font_small,
+            font=font_total,
             fill=SMALL_TEXT_COLOR,
         )
 
@@ -324,7 +327,7 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
 
         # バー上のテキスト「0 / 20」など
         bar_text = f"{int(cur)} / {int(need)}"
-        bar_text_bbox = draw.textbbox((0, 0), bar_text, font=font_small)
+        bar_text_bbox = draw.textbbox((0, 0), bar_text, font=font_bartext)
         bar_text_w = bar_text_bbox[2] - bar_text_bbox[0]
         bar_text_h = bar_text_bbox[3] - bar_text_bbox[1]
         bar_text_x = bar_x1 + (bar_x2 - bar_x1 - bar_text_w) // 2
@@ -335,7 +338,7 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
         draw.text(
             (bar_text_x, bar_text_y),
             bar_text,
-            font=font_small,
+            font=font_bartext,
             fill=BAR_TEXT_COLOR,
         )
 
