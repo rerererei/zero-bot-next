@@ -1,33 +1,91 @@
 import discord
 from discord import app_commands
 import re
+import json
+import os
 
 from config import debug_log
 from data.guild_config_store import GuildConfigStore
 
+# ============================================
+# プロフィールメッセージ（従来の JSON 保存版）
+# ============================================
+
+PROFILE_MESSAGE_PATH = "profile_messages.json"
+
+
+def load_profile_messages():
+    """
+    旧仕様互換：
+    profile_messages.json からプロフィールメッセージ情報を読み込む。
+
+    戻り値イメージ:
+        {
+            "123456789012345678": "https://discord.com/channels/....",
+            "987654321098765432": "https://discord.com/channels/....",
+            ...
+        }
+    """
+    if os.path.exists(PROFILE_MESSAGE_PATH):
+        try:
+            with open(PROFILE_MESSAGE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            debug_log(f"[PROFILE] load_profile_messages 失敗: {e}")
+            return {}
+    return {}
+
+def save_profile_messages(data: dict):
+    """
+    旧仕様互換：
+    profile_messages.json にプロフィールメッセージ情報を書き出す。
+    """
+    try:
+        with open(PROFILE_MESSAGE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        debug_log(f"[PROFILE] save_profile_messages 失敗: {e}")
+
+
+# ============================================
 # DynamoDB ギルド設定
+# ============================================
+
 config_store = GuildConfigStore()
 
 
 def normalize_voice_channel_name(name: str) -> str:
     """ボイスチャンネル名を比較用に正規化"""
-    name = re.sub(r'\s+', ' ', name).strip()
+    name = re.sub(r"\s+", " ", name).strip()
     return name
 
 
 def normalize_text_channel_name(name: str) -> str:
     """テキストチャンネル名を比較用に正規化"""
-    name = re.sub(r'\s+', '-', name.strip())
-    name = re.sub(r'-+', '-', name)
-    return name.strip('-')
+    name = re.sub(r"\s+", "-", name.strip())
+    name = re.sub(r"-+", "-", name)
+    return name.strip("-")
 
 
-async def voice_users_autocomplete(interaction: discord.Interaction, current: str):
-    """ボイスチャンネルのユーザーをオートコンプリート（DB対応版）"""
+async def voice_users_autocomplete(
+    interaction: discord.Interaction, current: str
+):
+    """
+    ボイスチャンネルのユーザーをオートコンプリート（DB対応版）
+
+    - ギルドごとの設定は DynamoDB (guild_config_store) から取得
+    - profile セクション内:
+        {
+          "profile": {
+            "excluded_voice_channel_ids": ["123456789012345678", ...]
+          }
+        }
+      のような形を想定
+    """
 
     guild = interaction.guild
     if guild is None:
-        debug_log("サーバー情報なし")
+        debug_log("[AUTO] サーバー情報なし")
         return []
 
     guild_id = guild.id
@@ -37,16 +95,18 @@ async def voice_users_autocomplete(interaction: discord.Interaction, current: st
     profile_cfg = cfg.get("profile") or {}
 
     # DB に未設定なら空扱い
-    excluded_voice_channels = profile_cfg.get("excluded_voice_channel_ids", [])
-    excluded_voice_channels = [int(c) for c in excluded_voice_channels]  # 文字列対応
+    raw_excluded = profile_cfg.get("excluded_voice_channel_ids", [])
+    try:
+        excluded_voice_channels = [int(c) for c in raw_excluded]
+    except (TypeError, ValueError):
+        excluded_voice_channels = []
 
     current_lower = (current or "").lower()
-    voice_members = []
+    voice_members: list[str] = []
 
     debug_log(f"[AUTO] 除外VC = {excluded_voice_channels}")
 
     for vc in guild.voice_channels:
-
         # 🔹 DB で除外指定された VC をスキップ
         if vc.id in excluded_voice_channels:
             debug_log(f"[AUTO] 除外VCスキップ: {vc.name} ({vc.id})")
@@ -58,4 +118,7 @@ async def voice_users_autocomplete(interaction: discord.Interaction, current: st
 
     debug_log(f"[AUTO] 候補 = {voice_members[:25]}")
 
-    return [app_commands.Choice(name=name, value=name) for name in voice_members[:25]]
+    return [
+        app_commands.Choice(name=name, value=name)
+        for name in voice_members[:25]
+    ]
