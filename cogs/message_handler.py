@@ -1,7 +1,6 @@
 import discord
 import datetime
 import pytz
-import os
 import logging
 from discord.ext import commands
 
@@ -15,33 +14,16 @@ jst = pytz.timezone("Asia/Tokyo")
 # 🔹 ギルド設定(DynamoDB) 用
 config_store = GuildConfigStore()
 
-# ログ保存ディレクトリとファイルパス
-log_dir = "log"
-os.makedirs(log_dir, exist_ok=True)
-today_str = datetime.datetime.now(jst).strftime("%Y%m%d")
-log_file_path = os.path.join(log_dir, f"message_handler_{today_str}.log")
-
-# ログローテート処理（3日より古いログを削除）
-for fname in os.listdir(log_dir):
-    if fname.startswith("message_handler_") and fname.endswith(".log"):
-        try:
-            date_str = fname.replace("message_handler_", "").replace(".log", "")
-            file_date = datetime.datetime.strptime(date_str, "%Y%m%d")
-            if (datetime.datetime.now(jst) - file_date).days > 2:
-                os.remove(os.path.join(log_dir, fname))
-        except Exception:
-            continue
-
-# ログ設定（ファイル出力）
+# ロガー設定（標準出力のみ）
 logger = logging.getLogger("message_handler")
 logger.setLevel(logging.INFO)
 
 # 重複防止
 if not logger.handlers:
-    file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
+    stream_handler = logging.StreamHandler()  # ファイルではなく標準出力に出す
     formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s')
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
 
 
 class MessageHandlerCog(commands.Cog):
@@ -82,13 +64,14 @@ class MessageHandlerCog(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """ボイスチャンネルのテキストチャットのメッセージのみ転記"""
-        now = datetime.datetime.now(jst).strftime("%Y-%m-%d %H:%M:%S")
 
-        logger.info(f"[MESSAGE][{message.channel.name}][{message.author.display_name}] {message.content}")
+        # ログ出力（標準出力に流れる）
+        # logger.info(f"[MESSAGE][{message.channel.name}][{message.author.display_name}] {message.content}")
         image_urls = [attachment.url for attachment in message.attachments]
-        if image_urls:
-            logger.info(f"[IMAGE][{message.channel.name}][{message.author.display_name}] {image_urls[0]}")
+        # if image_urls:
+        #     logger.info(f"[IMAGE][{message.channel.name}][{message.author.display_name}] {image_urls[0]}")
 
+        # Bot 自身のメッセージは無視
         if message.author.bot:
             return
 
@@ -97,11 +80,12 @@ class MessageHandlerCog(commands.Cog):
             debug_log("ギルド情報が取得できないため無視")
             return
 
+        # ボイスチャンネル以外は無視
         if not isinstance(message.channel, discord.VoiceChannel):
             debug_log(f"{message.channel.name} はボイスチャンネルではないため無視")
             return
 
-        # 🔹 除外カテゴリー判定を DB ベースに変更
+        # 🔹 除外カテゴリー判定（DynamoDB ベース）
         if self.is_excluded(message.channel):
             cat_id = message.channel.category.id if message.channel.category else "N/A"
             debug_log(f"[SKIP] `{message.channel.name}` は除外カテゴリー (`{cat_id}`) に属するため無視")
@@ -111,15 +95,21 @@ class MessageHandlerCog(commands.Cog):
         target_channel = await self.channel_manager.get_or_create_text_channel(guild, message.channel)
         debug_log(f"転記先チャンネル: {target_channel.name} ({target_channel.id})")
 
-        message_time_jst = message.created_at.replace(tzinfo=pytz.utc).astimezone(jst).strftime("%Y/%m/%d %H:%M:%S")
+        # メッセージ時刻（JST）
+        message_time_jst = (
+            message.created_at.replace(tzinfo=pytz.utc)
+            .astimezone(jst)
+            .strftime("%Y/%m/%d %H:%M:%S")
+        )
 
+        # 1通目（本文＋1枚目の画像）
         embed = discord.Embed(
             description=message.content,
             color=0x82cded,
         )
         embed.set_author(
             name=f"{message.author.display_name}   {message_time_jst}",
-            icon_url=message.author.display_avatar.url
+            icon_url=message.author.display_avatar.url,
         )
 
         if image_urls:
@@ -128,20 +118,21 @@ class MessageHandlerCog(commands.Cog):
         await target_channel.send(embed=embed)
         debug_log(f"メッセージを転記完了: {message.content}")
 
-        # 2枚目以降の画像
+        # 2枚目以降の画像は別Embedで送信
         for img_url in image_urls[1:]:
             image_embed = discord.Embed(
                 color=0x82cded,
             )
             image_embed.set_author(
                 name=f"{message.author.display_name}   {message_time_jst}",
-                icon_url=message.author.display_avatar.url
+                icon_url=message.author.display_avatar.url,
             )
             image_embed.set_image(url=img_url)
 
             await target_channel.send(embed=image_embed)
             debug_log(f"追加の画像を転記: {img_url}")
 
+        # 他のコマンド処理へも回す
         await self.bot.process_commands(message)
 
 

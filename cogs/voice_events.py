@@ -90,7 +90,7 @@ class VoiceEventsCog(commands.Cog):
                 text_channel = await self.channel_manager.get_or_create_text_channel(guild, before.channel)
 
                 embed = discord.Embed(
-                    description=f"**{member.display_name}**（ID:`{member.id}`）が **{before.channel.name}** から退出しました。",
+                    description=f"**{member.display_name}** が **{before.channel.name}** から退出しました。",
                     color=0xE74C3C
                 )
                 embed.set_author(name=f"{member.display_name} さんの退出", icon_url=member.display_avatar.url)

@@ -37,7 +37,6 @@ class OyanmoCog(commands.Cog):
         """
         oyanmo_cfg = self._get_oyanmo_config(guild.id)
         raw_id = oyanmo_cfg.get("target_voice_channel_id")
-
         if not raw_id:
             return None
 
@@ -122,7 +121,7 @@ class OyanmoCog(commands.Cog):
             await interaction.followup.send(
                 "❌ おやんも先のボイスチャンネルが設定されていません。\n"
                 "管理者さんに `target_voice_channel_id` の設定をお願いしてください。",
-                ephemeral=True,
+                ephemeral=False,
             )
             return
 

@@ -151,8 +151,6 @@ class VoiceLeveling(commands.Cog):
             stats = get_guild_user_stats(guild.id)  # { user_id: {voice_xp, text_xp} }
             total_users += len(stats)
 
-        print(f"[voice_snapshot_loop] 更新完了: ユーザー数={total_users}")
-
     @voice_snapshot_loop.before_loop
     async def before_voice_snapshot_loop(self):
         await self.bot.wait_until_ready()

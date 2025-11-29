@@ -102,8 +102,8 @@ class ChannelManager:
         category = self._get_voice_text_category_from_config(guild)
 
         # 2) 設定にカテゴリがない場合 → VC が属するカテゴリを使う
-        if category is None and voice_channel.category is not None:
-            category = voice_channel.category
+        # if category is None and voice_channel.category is not None:
+        #     category = voice_channel.category
 
         # 3) それでも None なら、デフォルトカテゴリ名で作成
         if category is None:

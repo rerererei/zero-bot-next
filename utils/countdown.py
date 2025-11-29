@@ -53,7 +53,9 @@ async def countdown_procedure(interaction, target_member, target_channel, countd
     cfg = config_store.get_config(guild_id) or {}
     oyanmo_cfg = cfg.get("oyanmo") or {}
 
-    countdown_seconds = oyanmo_cfg.get("default_countdown_seconds", 10)
+    # ★ float → int に変換（絶対必要）
+    countdown_seconds = int(oyanmo_cfg.get("default_countdown_seconds", 10))
+
     enable_stop_button = oyanmo_cfg.get("enable_stop_button", True)
 
     # メイン埋め込み
@@ -92,7 +94,7 @@ async def countdown_procedure(interaction, target_member, target_channel, countd
     # 実際に移動
     await target_member.move_to(target_channel)
 
-    # ★ 成功メッセージ → guild_id を渡す！
+    # ★ 成功メッセージ
     embed.description = get_random_success_message(guild_id, target_member.display_name)
     embed.color = 0x32CD32
 
