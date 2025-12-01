@@ -106,7 +106,7 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
     CYAN_COLOR = hex_to_rgba(CYAN_HEX)
 
     # ===== 画像生成開始 =====
-    bg_key = get_rank_bg_key(guild_id, user_id) or DEFAULT_BG
+    bg_key = get_rank_bg_key(guild_id, user_id)
 
     try:
         bg = load_rank_bg_from_s3(bg_key)
@@ -376,7 +376,8 @@ async def generate_rank_card(bot, interaction: discord.Interaction):
 
     file = discord.File(buffer, filename="rank-card.png")
 
-    await interaction.response.send_message(
+    # ★ ここでは followup で送る（最初のレスポンスは /zb rank 側で済ませている）
+    await interaction.followup.send(
         content="",
         file=file,
         ephemeral=False,

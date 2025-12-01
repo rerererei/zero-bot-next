@@ -7,7 +7,7 @@ from collections import defaultdict
 from boto3.dynamodb.conditions import Key
 
 
-from utils.time import jst_now  # なければ後で書く or 直接 datetime＋pytz 使う
+from utils.helpers import jst_now
 
 DYNAMO_REGION = "ap-northeast-1"
 TABLE_NAME = "zero_bot_voice_daily_stats"
@@ -38,9 +38,7 @@ def add_daily_voice_minutes(
       add_daily_voice_minutes(..., total_min=1.0, small_group_min=1.0, ...)
     みたいなノリ。
     """
-    now_jst = datetime.datetime.now(datetime.timezone.utc).astimezone(
-        datetime.timezone(datetime.timedelta(hours=9))
-    )
+    now_jst = jst_now()
     today = now_jst.date()
 
     pk = _make_guild_date_key(guild_id, today)

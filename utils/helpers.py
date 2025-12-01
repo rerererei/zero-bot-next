@@ -3,6 +3,7 @@ from discord import app_commands
 import re
 import json
 import os
+import datetime
 
 from config import debug_log
 from data.guild_config_store import GuildConfigStore
@@ -160,3 +161,12 @@ def _xp_for_level(target_level: int) -> float:
             lo = mid
 
     return hi
+
+# ===== JST関連ユーティリティ =====
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
+def jst_now() -> datetime.datetime:
+    """
+    JST の timezone-aware な現在時刻を返す。
+    """
+    return datetime.datetime.now(JST)

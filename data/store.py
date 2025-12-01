@@ -4,16 +4,13 @@ from typing import Dict, Optional
 # from data.backends.json_store import JsonStore
 # from data.backends.memory_store import MemoryStore
 from data.backends.dynamo_store import DynamoStore
-
+from data.guild_config_store import GuildConfigStore
 
 # =========================
 #  永続化バックエンド選択
 # =========================
-# 今は JSON 永続化を使う
-# store = JsonStore("data/zero_bot_xp.json")
 store = DynamoStore(table_name="zero_bot_xp")
-# 将来 Dynamo にするときはここだけ変えるイメージ
-# store = DynamoStore(table_name="zero_bot_xp")
+guild_config_store = GuildConfigStore()
 
 
 # =========================
@@ -72,5 +69,19 @@ def calc_level_from_xp(xp: float) -> tuple[int, float, float]:
     # remaining がそのレベルの中で貯まっているXP
     return level, remaining, need
 
-def get_rank_bg_key(gid: int, uid: int) -> Optional[str]:
-    return store.get_rank_bg_key(gid, uid)
+def get_rank_bg_key(gid: int, uid: int) -> str:
+    # 2) DynamoDB のユーザー個別設定
+    user_bg_key = store.get_rank_bg_key(gid, uid)
+    if user_bg_key:
+        return user_bg_key
+
+    # 1) ギルド設定（zero_bot_guild_config）
+    guild_cfg = guild_config_store.get_config(gid) or {}
+    rankcard_cfg = guild_cfg.get("rankcard") or {}
+
+    guild_bg_key = rankcard_cfg.get("rank_bg_key")
+    if guild_bg_key:
+        return guild_bg_key
+
+    # 3) fallback
+    return "Default"

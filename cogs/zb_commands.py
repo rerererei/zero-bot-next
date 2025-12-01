@@ -26,7 +26,10 @@ class ZBCommands(commands.Cog):
     )
     async def rank(self, interaction: discord.Interaction):
 
-        # ★ zb_rank.py に完全委譲（XP計算だけメインでやる選択肢もある）
+        # ★ まずインタラクションをデファー（考え中…表示）
+        await interaction.response.defer(thinking=True)
+
+        # その後、画像生成に委譲
         await generate_rank_card(self.bot, interaction)
 
 async def setup(bot: commands.Bot):

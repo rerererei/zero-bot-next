@@ -16,6 +16,12 @@ from data.store import (
 )
 
 from utils.helpers import _xp_for_level
+import datetime
+
+from data.voice_daily_store import (
+    get_guild_total_minutes_in_range,
+    get_user_total_minutes_in_range,
+)
 
 def _fmt_duration(sec: float) -> str:
     """秒 → 『○時間△分▢秒』みたいな日本語表記にする"""
@@ -720,6 +726,249 @@ class ZBAdmin(commands.Cog):
             embed=view.make_embed(),
             view=view,
         )
+
+    # ------------------------
+    # /zbadmin voicerank_period
+    # ------------------------
+    @zbadmin.command(
+        name="voicerank_period",
+        description="指定期間のボイス通話時間ランキング（サーバー全体）を表示します",
+    )
+    @app_commands.describe(
+        date_from="集計開始日 (YYYYMMDD)",
+        date_to="集計終了日 (YYYYMMDD)",
+        top_n="表示する件数（1〜50）",
+    )
+    async def voicerank_period(
+        self,
+        interaction: discord.Interaction,
+        date_from: str,
+        date_to: str,
+        top_n: int = 10,
+    ):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "このコマンドは **管理者専用** だよ。",
+                ephemeral=True,
+            )
+            return
+
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "サーバー内で実行してね。",
+                ephemeral=True,
+            )
+            return
+
+        # 入力: YYYYMMDD
+        try:
+            start = datetime.datetime.strptime(date_from, "%Y%m%d").date()
+            end = datetime.datetime.strptime(date_to, "%Y%m%d").date()
+        except ValueError:
+            await interaction.response.send_message(
+                "日付の形式は `YYYYMMDD` で指定してね。\n例: `20251101`",
+                ephemeral=True,
+            )
+            return
+
+        if start > end:
+            await interaction.response.send_message(
+                "開始日が終了日より後になってるよ。",
+                ephemeral=True,
+            )
+            return
+
+        # 表示用: YYYY/MM/DD
+        start_str = start.strftime("%Y/%m/%d")
+        end_str   = end.strftime("%Y/%m/%d")
+
+        top_n = max(1, min(top_n, 50))
+        await interaction.response.defer(ephemeral=False)
+
+        totals = get_guild_total_minutes_in_range(
+            guild_id=guild.id,
+            date_from=start,
+            date_to=end,
+        )
+
+        if not totals:
+            await interaction.followup.send(
+                f"{start_str} 〜 {end_str} の間に VC データがなかったよ。",
+            )
+            return
+
+        sorted_items = sorted(totals.items(), key=lambda x: x[1], reverse=True)
+
+        lines = []
+        for idx, (uid, minutes) in enumerate(sorted_items, start=1):
+            member = guild.get_member(uid)
+            name = member.display_name if member else f"(ID: {uid})"
+            time_text = _fmt_duration(minutes * 60)
+            lines.append(f"`{idx:>2}` {name} — {time_text}")
+
+        lines = lines[:top_n]
+
+        title = f"🎤 VC時間ランキング（{start_str} 〜 {end_str}）"
+        PER_PAGE = 10
+
+        if len(lines) <= PER_PAGE:
+            embed = discord.Embed(
+                title=title,
+                description="\n".join(lines),
+                color=discord.Color.gold(),
+            )
+            await interaction.followup.send(embed=embed)
+            return
+
+        view = PeriodRankPaginator(lines=lines, per_page=PER_PAGE)
+        view.page = 0
+        embed = discord.Embed(
+            title=title,
+            description="\n".join(lines[:PER_PAGE]),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"Page 1/{(len(lines)-1)//PER_PAGE + 1}")
+        await interaction.followup.send(embed=embed, view=view)
+
+    # ------------------------
+    # /zbadmin voice_time_period
+    # ------------------------
+    @zbadmin.command(
+        name="voice_time_period",
+        description="指定ユーザーの指定期間のボイス滞在時間を表示（管理者専用）",
+    )
+    @app_commands.describe(
+        user="対象ユーザー（省略時は自分）",
+        date_from="集計開始日 (YYYYMMDD)",
+        date_to="集計終了日 (YYYYMMDD)",
+    )
+    async def voice_time_period(
+        self,
+        interaction: discord.Interaction,
+        user: Optional[discord.Member],
+        date_from: str,
+        date_to: str,
+    ):
+        # 管理者権限チェック
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "このコマンドは **管理者専用** だよ。",
+                ephemeral=True,
+            )
+            return
+
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "サーバー内で実行してね。",
+                ephemeral=True,
+            )
+            return
+
+        target = user or interaction.user
+
+        # 日付入力 YYYYMMDD
+        try:
+            start = datetime.datetime.strptime(date_from, "%Y%m%d").date()
+            end = datetime.datetime.strptime(date_to, "%Y%m%d").date()
+        except ValueError:
+            await interaction.response.send_message(
+                "日付の形式は `YYYYMMDD` で指定してね。\n例: `20251101`",
+                ephemeral=True,
+            )
+            return
+
+        if start > end:
+            await interaction.response.send_message(
+                "開始日が終了日より後になってるよ。",
+                ephemeral=True,
+            )
+            return
+
+        # 表示用
+        start_str = start.strftime("%Y/%m/%d")
+        end_str   = end.strftime("%Y/%m/%d")
+
+        await interaction.response.defer(ephemeral=False)
+
+        # 集計
+        total_min = get_user_total_minutes_in_range(
+            guild_id=guild.id,
+            user_id=target.id,
+            date_from=start,
+            date_to=end,
+        )
+
+        time_text = _fmt_duration(total_min * 60)
+
+        # 🎤 Embed 作成（アイコン付き）
+        embed = discord.Embed(
+            title=f"🎤 期間VC時間：{target.display_name}",
+            description=(
+                f"期間: **{start_str} 〜 {end_str}**\n"
+                f"合計VC時間: **{time_text}**"
+            ),
+            color=discord.Color.blue(),
+        )
+
+        # ⭐ アイコン表示（thumbnail）
+        if target.avatar:
+            embed.set_thumbnail(url=target.avatar.url)
+        else:
+            embed.set_thumbnail(url=target.default_avatar.url)
+
+        await interaction.followup.send(embed=embed)
+
+
+class PeriodRankPaginator(discord.ui.View):
+    """期間ランキング用のシンプルなページャ"""
+
+    def __init__(self, lines: list[str], per_page: int = 10):
+        super().__init__(timeout=60)
+        self.lines = lines
+        self.per_page = per_page
+        self.page = 0
+
+    def _max_page(self) -> int:
+        if not self.lines:
+            return 0
+        return (len(self.lines) - 1) // self.per_page
+
+    def _make_embed(self, title: str) -> discord.Embed:
+        start = self.page * self.per_page
+        end = start + self.per_page
+        chunk = self.lines[start:end]
+
+        desc = "\n".join(chunk) if chunk else "データがありません。"
+
+        embed = discord.Embed(
+            title=title,
+            description=desc,
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"Page {self.page + 1}/{self._max_page() + 1}")
+        return embed
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    async def prev_page(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if self.page > 0:
+            self.page -= 1
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    async def next_page(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if self.page < self._max_page():
+            self.page += 1
+        await interaction.response.edit_message(view=self)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ZBAdmin(bot))

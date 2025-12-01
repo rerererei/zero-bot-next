@@ -52,16 +52,23 @@ class ArchiveManagerCog(commands.Cog):
         # 見つからない
         return None
 
-    @app_commands.command(name="manage_comment", description="管理者用コマンド")
-    @app_commands.describe(date="（yyyymmdd）")
+    @app_commands.command(
+        name="manage_comment",
+        description="管理者用コマンド",
+    )
+    @app_commands.describe(
+        date="（yyyymmdd）"
+    )
+    @app_commands.default_permissions(administrator=True)  # ★ 管理者権限が必要
+    @app_commands.checks.has_permissions(administrator=True)  # ★ 念のため実行時チェックも
+    @app_commands.guild_only()  # DMで使えないように（任意だけどおすすめ）
     async def manage_comment(self, interaction: discord.Interaction, date: str):
         guild = interaction.guild
         if guild is None:
-            await interaction.response.send_message("エラー: サーバー情報が取得できません。", ephemeral=True)
-            return
-
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("⛔ このコマンドは管理者のみ実行可能です。", ephemeral=True)
+            await interaction.response.send_message(
+                "エラー: サーバー情報が取得できません。",
+                ephemeral=True,
+            )
             return
 
         # 日付フォーマットチェック
@@ -141,35 +148,33 @@ class DeleteConfirmView(discord.ui.View):
     async def confirm_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
 
+        # 実行者チェック
         if interaction.user != self.interaction.user:
-            await interaction.followup.send("❌ 実行者のみが削除を確定できます。", ephemeral=True)
-            return
+            return  # ←何も返さない（結果メッセージなし）
 
-        deleted_count = 0
+        # チャンネル削除処理だけ実行
         for channel in self.channels_to_delete:
             try:
                 await channel.delete()
-                deleted_count += 1
-                debug_log(f"[ARCHIVE DELETED] {channel.name} を削除しました。")
-            except discord.Forbidden:
-                await self.interaction.followup.send(f"❌ `{channel.name}` の削除権限がありません。")
-            except Exception as e:
-                debug_log(f"⚠ {channel.name} の削除に失敗: {e}")
+            except Exception:
+                pass  # エラーも無視（結果は送らない）
 
+        # 確認メッセージだけ消す
         await self.delete_original_message()
-        await interaction.followup.send(f"✅ `{deleted_count}` 件のアーカイブチャンネルを削除しました。")
+
+        # ★ followup/send はしない
+        return
 
     @discord.ui.button(label="キャンセル", style=discord.ButtonStyle.secondary)
     async def cancel_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
 
         if interaction.user != self.interaction.user:
-            await interaction.followup.send("❌ 実行者のみがキャンセルできます。", ephemeral=True)
-            return
+            return  # 返さない
 
+        # メッセージ削除だけする
         await self.delete_original_message()
-        await interaction.followup.send("⛔ 削除をキャンセルしました。", ephemeral=True)
-
+        return
 
 async def setup(bot):
     bot.confirmation_messages = {}  # ✅ メッセージ管理用辞書を追加
