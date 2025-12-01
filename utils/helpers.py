@@ -6,6 +6,7 @@ import os
 
 from config import debug_log
 from data.guild_config_store import GuildConfigStore
+from data.store import calc_level_from_xp
 
 # ============================================
 # プロフィールメッセージ（従来の JSON 保存版）
@@ -122,3 +123,40 @@ async def voice_users_autocomplete(
         app_commands.Choice(name=name, value=name)
         for name in voice_members[:25]
     ]
+
+# ============================================
+# XP / レベル関連ヘルパ
+# ============================================
+
+def _xp_for_level(target_level: int) -> float:
+    """
+    指定レベルになるために必要な『通算XP』を逆算する。
+
+    calc_level_from_xp を使って二分探索で求めるので、
+    XPカーブの実装に依存しない。
+    """
+    if target_level <= 1:
+        return 0.0
+
+    # ざっくり上限を探す（指数的に増やしていく）
+    lo = 0.0
+    hi = 100.0
+
+    while True:
+        lv, _, _ = calc_level_from_xp(hi)
+        if lv >= target_level:
+            break
+        hi *= 2
+        if hi > 10_000_000:  # 上限保険
+            break
+
+    # lo..hi の範囲で「そのレベルになる最小XP」を二分探索
+    for _ in range(40):  # 精度十分
+        mid = (lo + hi) / 2
+        lv, _, _ = calc_level_from_xp(mid)
+        if lv >= target_level:
+            hi = mid
+        else:
+            lo = mid
+
+    return hi

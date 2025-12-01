@@ -8,10 +8,14 @@ from typing import Optional
 from data.store import (
     get_voice_xp,
     get_text_xp,
+    add_voice_xp,        # ★ これを必ず入れる
+    add_text_xp,         # ★ これも必ず入れる
     calc_level_from_xp,
     get_voice_meta,
+    get_guild_user_stats,
 )
 
+from utils.helpers import _xp_for_level
 
 def _fmt_duration(sec: float) -> str:
     """秒 → 『○時間△分▢秒』みたいな日本語表記にする"""
@@ -37,6 +41,136 @@ def _pct(part: float, whole: float) -> str:
         return "0.0%"
     return f"{part / whole * 100:.1f}%"
 
+class RankPaginator(discord.ui.View):
+    def __init__(
+        self,
+        entries: list[tuple[discord.Member, float, int]],
+        *,
+        per_page: int = 10,
+        title: str = "ランキング",
+        kind: str = "voice",
+        author_id: int | None = None,
+        guild_name: str = "",
+        timeout: float = 180.0,
+    ):
+        """
+        entries: [(member, xp, level), ...] のリスト
+        kind: "voice" or "text"（埋め込みタイトルとかに使う）
+        """
+        super().__init__(timeout=timeout)
+        self.entries = entries
+        self.per_page = per_page
+        self.title = title
+        self.kind = kind
+        self.author_id = author_id
+        self.guild_name = guild_name
+        self.current_page = 0  # 0-based
+
+    # ページ数
+    @property
+    def max_page(self) -> int:
+        if not self.entries:
+            return 1
+        return (len(self.entries) - 1) // self.per_page + 1
+
+    def make_embed(self) -> discord.Embed:
+        start = self.current_page * self.per_page
+        end = start + self.per_page
+        page_entries = self.entries[start:end]
+
+        lines: list[str] = []
+        for idx, (member, xp, level) in enumerate(page_entries, start=start + 1):
+            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(idx, f"{idx}位")
+            lines.append(
+                f"{medal} **{member.display_name}** — "
+                f"Lv.{level} / `{xp:.1f}` XP"
+            )
+
+        if not lines:
+            desc = "データがありません。"
+        else:
+            desc = "\n".join(lines)
+
+        embed = discord.Embed(
+            title=self.title,
+            description=desc,
+            color=discord.Color.gold()
+            if self.kind == "voice"
+            else discord.Color.blurple(),
+        )
+        footer = f"サーバー: {self.guild_name} | ページ {self.current_page + 1}/{self.max_page}"
+        embed.set_footer(text=footer)
+        return embed
+
+    async def _ensure_author(self, interaction: discord.Interaction) -> bool:
+        """コマンド実行者以外が押したときは無視 or エラーメッセージ"""
+        if self.author_id is None:
+            return True
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message(
+                "このランキングの操作はコマンド実行者のみが行えます。",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="⏮ 戻る", style=discord.ButtonStyle.secondary)
+    async def prev_page(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if not await self._ensure_author(interaction):
+            return
+
+        if self.current_page > 0:
+            self.current_page -= 1
+        else:
+            # 先頭からさらに戻ろうとしたら末尾にループ
+            self.current_page = self.max_page - 1
+
+        await interaction.response.edit_message(embed=self.make_embed(), view=self)
+
+    @discord.ui.button(label="次へ ⏭", style=discord.ButtonStyle.secondary)
+    async def next_page(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if not await self._ensure_author(interaction):
+            return
+
+        if self.current_page < self.max_page - 1:
+            self.current_page += 1
+        else:
+            # 最後から次に行こうとしたら先頭に戻す
+            self.current_page = 0
+
+        await interaction.response.edit_message(embed=self.make_embed(), view=self)
+
+    @discord.ui.button(label="✖ 閉じる", style=discord.ButtonStyle.danger)
+    async def close(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if not await self._ensure_author(interaction):
+            return
+
+        # ボタンを全部無効化して更新
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    async def on_timeout(self):
+        # タイムアウトしたらボタンを無効化
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        # メッセージ本体は取得できないので、呼び出し側が放置でOK
 
 class ZBAdmin(commands.Cog):
     """管理者専用コマンドグループ"""
@@ -61,13 +195,16 @@ class ZBAdmin(commands.Cog):
     @app_commands.describe(user="XPを確認する対象ユーザー")
     async def show_xp(self, interaction: discord.Interaction, user: discord.Member):
 
-        # 二重ガード（MissingPermissionsを出させない）
+        # 管理者チェック（ここは軽いので defer 前でOK）
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message(
                 "このコマンドは **管理者専用** だよ。",
                 ephemeral=True
             )
             return
+
+        # 🔹 先に defer してインタラクションを延命
+        await interaction.response.defer(ephemeral=True)
 
         guild_id = interaction.guild.id
 
@@ -99,7 +236,8 @@ class ZBAdmin(commands.Cog):
             inline=False
         )
 
-        await interaction.response.send_message(embed=embed)
+        # 🔹 defer 済みなので followup で返す
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ------------------------
     # /zbadmin voice_stats
@@ -298,6 +436,290 @@ class ZBAdmin(commands.Cog):
         # ★ defer 済みなので followup で返す
         await interaction.followup.send(embed=embed)
 
+    # ------------------------
+    # /zbadmin setxp（加算方式）
+    # ------------------------
+    @zbadmin.command(
+        name="setxp",
+        description="指定ユーザーのXPを加算します（管理者専用）",
+    )
+    @app_commands.describe(
+        user="XPを変更する対象ユーザー",
+        target="ボイスかテキストか",
+        xp="加算するXP量（マイナス指定も可能）",
+    )
+    @app_commands.choices(
+        target=[
+            app_commands.Choice(name="ボイスXP", value="voice"),
+            app_commands.Choice(name="テキストXP", value="text"),
+        ]
+    )
+    async def setxp(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        target: app_commands.Choice[str],
+        xp: float,
+    ):
+        # 管理者チェック
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "このコマンドは **管理者専用** だよ。",
+                ephemeral=True,
+            )
+            return
+
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "サーバー内で実行してね。",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        guild_id = interaction.guild.id
+
+        # ★ 現在XPに「加算」する処理
+        if target.value == "voice":
+            add_voice_xp(guild_id, user.id, xp)
+            new_xp = get_voice_xp(guild_id, user.id)
+        else:
+            add_text_xp(guild_id, user.id, xp)
+            new_xp = get_text_xp(guild_id, user.id)
+
+        # 新しいXPからレベル計算
+        lv, cur, need = calc_level_from_xp(new_xp)
+
+        xp_kind = "ボイス" if target.value == "voice" else "テキスト"
+
+        await interaction.followup.send(
+            (
+                f"✅ `{user.display_name}` の **{xp_kind} XP** に `{xp}` XP 加算しました。\n"
+                f"→ 現在XP: **{new_xp:.1f} XP**\n"
+                f"→ Lv.{lv}（次Lvまで {cur:.1f} / {need:.1f}）"
+            ),
+            ephemeral=True,
+        )
+
+    # ------------------------
+    # /zbadmin setlv
+    # ------------------------
+    @zbadmin.command(
+        name="setlv",
+        description="指定ユーザーを指定レベルになるようにXPを調整します（管理者専用）",
+    )
+    @app_commands.describe(
+        user="レベルを変更する対象ユーザー",
+        target="ボイスかテキストか",
+        level="設定したいレベル（そのレベルになるXPを自動計算）",
+    )
+    @app_commands.choices(
+        target=[
+            app_commands.Choice(name="ボイスXP", value="voice"),
+            app_commands.Choice(name="テキストXP", value="text"),
+        ]
+    )
+    async def setlv(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        target: app_commands.Choice[str],
+        level: int,
+    ):
+        # 管理者チェック（二重ガード）
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "このコマンドは **管理者専用** だよ。",
+                ephemeral=True,
+            )
+            return
+
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "サーバー内で実行してね。",
+                ephemeral=True,
+            )
+            return
+
+        if level < 1:
+            await interaction.response.send_message(
+                "レベルは 1 以上を指定してね。",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        guild_id = interaction.guild.id
+
+        # そのレベルになるために必要な通算XPを逆算
+        target_xp = _xp_for_level(level)
+
+        if target.value == "voice":
+            current_xp = get_voice_xp(guild_id, user.id)
+            delta = target_xp - current_xp
+            add_voice_xp(guild_id, user.id, delta)
+        else:
+            current_xp = get_text_xp(guild_id, user.id)
+            delta = target_xp - current_xp
+            add_text_xp(guild_id, user.id, delta)
+
+        # 念のため結果を再計算して表示
+        v_lv, v_cur, v_need = calc_level_from_xp(target_xp)
+
+        xp_kind = "ボイス" if target.value == "voice" else "テキスト"
+
+        await interaction.followup.send(
+            (
+                f"✅ `{user.display_name}` を **{xp_kind} Lv.{level}** 相当のXPに設定しました。\n"
+                f"→ 通算XP: **{target_xp:.1f} XP**（内部計算結果: Lv.{v_lv}, 次レベルまで {v_cur:.1f} / {v_need:.1f}）"
+            ),
+            ephemeral=True,
+        )
+
+    # ------------------------
+    # /zbadmin voicerank
+    # ------------------------
+    @zbadmin.command(
+        name="voicerank",
+        description="サーバー内のボイスXPランキング（ページング対応）を表示します（管理者専用）",
+    )
+    async def voicerank(
+        self,
+        interaction: discord.Interaction,
+    ):
+        # 管理者ガード
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "このコマンドは **管理者専用** だよ。",
+                ephemeral=True,
+            )
+            return
+
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "サーバー内で実行してね。",
+                ephemeral=True,
+            )
+            return
+
+        guild = interaction.guild
+        guild_id = guild.id
+
+        await interaction.response.defer(ephemeral=False)
+
+        stats = get_guild_user_stats(guild_id) or {}
+        entries: list[tuple[discord.Member, float, int]] = []
+
+        for uid_raw, data in stats.items():
+            try:
+                uid = int(uid_raw)
+            except (TypeError, ValueError):
+                continue
+
+            member = guild.get_member(uid)
+            if member is None:
+                continue
+
+            voice_xp = float(data.get("voice_xp", 0.0))
+            if voice_xp <= 0:
+                continue
+
+            level, _, _ = calc_level_from_xp(voice_xp)
+            entries.append((member, voice_xp, level))
+
+        # XP降順でソート
+        entries.sort(key=lambda x: x[1], reverse=True)
+
+        if not entries:
+            await interaction.followup.send("まだボイスXPが記録されているメンバーがいないみたい…。")
+            return
+
+        view = RankPaginator(
+            entries=entries,
+            per_page=10,
+            title="🎤 ボイスXPランキング",
+            kind="voice",
+            author_id=interaction.user.id,
+            guild_name=guild.name,
+        )
+
+        await interaction.followup.send(
+            embed=view.make_embed(),
+            view=view,
+        )
+
+    # ------------------------
+    # /zbadmin textrank
+    # ------------------------
+    @zbadmin.command(
+        name="textrank",
+        description="サーバー内のテキストXPランキング（ページング対応）を表示します（管理者専用）",
+    )
+    async def textrank(
+        self,
+        interaction: discord.Interaction,
+    ):
+        # 管理者ガード
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "このコマンドは **管理者専用** だよ。",
+                ephemeral=True,
+            )
+            return
+
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "サーバー内で実行してね。",
+                ephemeral=True,
+            )
+            return
+
+        guild = interaction.guild
+        guild_id = guild.id
+
+        await interaction.response.defer(ephemeral=False)
+
+        stats = get_guild_user_stats(guild_id) or {}
+        entries: list[tuple[discord.Member, float, int]] = []
+
+        for uid_raw, data in stats.items():
+            try:
+                uid = int(uid_raw)
+            except (TypeError, ValueError):
+                continue
+
+            member = guild.get_member(uid)
+            if member is None:
+                continue
+
+            text_xp = float(data.get("text_xp", 0.0))
+            if text_xp <= 0:
+                continue
+
+            level, _, _ = calc_level_from_xp(text_xp)
+            entries.append((member, text_xp, level))
+
+        entries.sort(key=lambda x: x[1], reverse=True)
+
+        if not entries:
+            await interaction.followup.send("まだテキストXPが記録されているメンバーがいないみたい…。")
+            return
+
+        view = RankPaginator(
+            entries=entries,
+            per_page=10,
+            title="💬 テキストXPランキング",
+            kind="text",
+            author_id=interaction.user.id,
+            guild_name=guild.name,
+        )
+
+        await interaction.followup.send(
+            embed=view.make_embed(),
+            view=view,
+        )
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ZBAdmin(bot))

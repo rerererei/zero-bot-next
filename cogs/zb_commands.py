@@ -3,11 +3,6 @@ from discord import app_commands
 from discord.ext import commands
 from utils.rankcard_draw import generate_rank_card 
 
-from data.store import (
-    get_voice_xp,
-    get_text_xp,
-    calc_level_from_xp,
-)
 
 
 class ZBCommands(commands.Cog):
