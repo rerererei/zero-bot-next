@@ -971,4 +971,6 @@ class PeriodRankPaginator(discord.ui.View):
         await interaction.response.edit_message(view=self)
 
 async def setup(bot: commands.Bot):
+    print("[ZBADMIN] loading zbadmin cog...")
     await bot.add_cog(ZBAdmin(bot))
+    print("[ZBADMIN] zbadmin cog loaded.")
