@@ -27,7 +27,7 @@ class ZBCommands(commands.Cog):
         description="RANK CARDを出力します。"
     )
     async def rank(self, interaction: discord.Interaction):
-
+        print("[ZB] /zb rank が呼ばれたよ！！！！")
         # ★ まずインタラクションをデファー（考え中…表示）
         await interaction.response.defer(thinking=True)
 
