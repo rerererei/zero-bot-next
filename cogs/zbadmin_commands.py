@@ -4,6 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from typing import Optional
+import logging
 
 from data.store import (
     get_voice_xp,
@@ -22,6 +23,8 @@ from data.voice_daily_store import (
     get_guild_total_minutes_in_range,
     get_user_total_minutes_in_range,
 )
+
+logger = logging.getLogger(__name__)
 
 def _fmt_duration(sec: float) -> str:
     """秒 → 『○時間△分▢秒』みたいな日本語表記にする"""
@@ -971,6 +974,6 @@ class PeriodRankPaginator(discord.ui.View):
         await interaction.response.edit_message(view=self)
 
 async def setup(bot: commands.Bot):
-    print("[ZBADMIN] loading zbadmin cog...")
+    logger.info("[ZBADMIN] loading zbadmin cog...")
     await bot.add_cog(ZBAdmin(bot))
-    print("[ZBADMIN] zbadmin cog loaded.")
+    logger.info("[ZBADMIN] zbadmin cog loaded.")
