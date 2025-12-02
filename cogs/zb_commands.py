@@ -2,8 +2,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from utils.rankcard_draw import generate_rank_card 
+import logging
 
 
+logger = logging.getLogger(__name__)
 
 class ZBCommands(commands.Cog):
     """ZERO BOT の /zb コマンドをまとめたCog"""
@@ -33,4 +35,6 @@ class ZBCommands(commands.Cog):
         await generate_rank_card(self.bot, interaction)
 
 async def setup(bot: commands.Bot):
+    logger.info("[ZB] loading zb cog...")
     await bot.add_cog(ZBCommands(bot))
+    logger.info("[ZB] zb cog loaded.")
