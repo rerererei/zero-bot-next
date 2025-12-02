@@ -58,7 +58,7 @@ class RankPaginator(discord.ui.View):
         per_page: int = 10,
         title: str = "ランキング",
         kind: str = "voice",
-        author_id: int | None = None,
+        author_id: Optional[int] = None,
         guild_name: str = "",
         timeout: float = 180.0,
     ):
