@@ -324,7 +324,7 @@ class VoiceStatusCog(commands.Cog):
         )
 
         embed = discord.Embed(
-            title="ZERO BOTがきたよ！！ワンワンワンワン！！！",
+            title="こんにちは！！呼ばれたらすぐ来ます！！都合の良いBotです！！",
             description=(
                 f"{voice_channel.mention} のステータスを変更できるよ。\n\n"
                 "下のボタンから操作してね。"
