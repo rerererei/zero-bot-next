@@ -31,8 +31,9 @@ class ZeroBot(commands.Bot):
             # おやんも系
             "cogs.oyanmo",
 
-            # VCステータス変更
+            # VCステータス・カラー表示
             "cogs.voice_status",
+            "cogs.color_preview",
 
             # ログ・アーカイブ・イベント関連
             "cogs.voice_events",
