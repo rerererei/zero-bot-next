@@ -15,7 +15,7 @@ BDSM_RESULT_URL_PATTERN = re.compile(
 
 @dataclass(frozen=True)
 class BdsmResultEntry:
-    """BDSM診断結果URLと投稿者の情報。"""
+    """BDSM診断結果URLの投稿情報。"""
 
     user_id: int
     display_name: str
@@ -29,7 +29,7 @@ def extract_bdsm_result_id(
     content: str,
 ) -> Optional[str]:
     """
-    メッセージ本文からBDSM診断結果IDを取得する。
+    メッセージ本文から診断結果IDを抽出する。
 
     例:
         https://bdsmtest.org/r/raxsP7pX
@@ -38,7 +38,9 @@ def extract_bdsm_result_id(
     if not content:
         return None
 
-    match = BDSM_RESULT_URL_PATTERN.search(content)
+    match = BDSM_RESULT_URL_PATTERN.search(
+        content
+    )
 
     if match is None:
         return None
@@ -46,7 +48,7 @@ def extract_bdsm_result_id(
     return match.group(1)
 
 
-def create_result_entry(
+def _create_result_entry(
     message: discord.Message,
     result_id: str,
 ) -> BdsmResultEntry:
@@ -74,9 +76,10 @@ async def collect_latest_results(
     exclude_user_id: Optional[int] = None,
 ) -> List[BdsmResultEntry]:
     """
-    チャンネル内に投稿された診断結果を取得する。
+    チャンネル内の診断結果を取得する。
 
-    投稿者ごとに最新の有効なURLを1件だけ採用する。
+    同じユーザーが複数回投稿している場合は、
+    最新の有効なURLだけを使用する。
     """
     results: Dict[int, BdsmResultEntry] = {}
 
@@ -89,11 +92,12 @@ async def collect_latest_results(
 
         if (
             exclude_user_id is not None
-            and message.author.id == exclude_user_id
+            and message.author.id
+            == exclude_user_id
         ):
             continue
 
-        # 新しい投稿から取得しているため、
+        # 新しいメッセージから取得しているため、
         # すでに登録済みなら古い投稿は確認しない
         if message.author.id in results:
             continue
@@ -106,7 +110,7 @@ async def collect_latest_results(
             continue
 
         results[message.author.id] = (
-            create_result_entry(
+            _create_result_entry(
                 message=message,
                 result_id=result_id,
             )
@@ -120,16 +124,21 @@ async def find_latest_user_result(
     user_id: int,
 ) -> Optional[BdsmResultEntry]:
     """
-    男女両方のURLチャンネルから、
+    複数の診断URLチャンネルから、
     指定ユーザーの最新診断結果を取得する。
     """
-    latest_result: Optional[BdsmResultEntry] = None
+    latest_result: Optional[
+        BdsmResultEntry
+    ] = None
 
     for channel in channels:
         async for message in channel.history(
             limit=None,
             oldest_first=False,
         ):
+            if message.author.bot:
+                continue
+
             if message.author.id != user_id:
                 continue
 
@@ -140,7 +149,7 @@ async def find_latest_user_result(
             if result_id is None:
                 continue
 
-            entry = create_result_entry(
+            entry = _create_result_entry(
                 message=message,
                 result_id=result_id,
             )
@@ -152,42 +161,73 @@ async def find_latest_user_result(
             ):
                 latest_result = entry
 
-            # このチャンネル内では最新の投稿を取得済み
+            # このチャンネルでは最新の有効投稿を取得済み
             break
 
     return latest_result
 
 
 async def collect_latest_profile_urls(
-    channel: discord.TextChannel,
+    channels: Iterable[discord.TextChannel],
     user_ids: Set[int],
 ) -> Dict[int, str]:
     """
-    プロフィールチャンネルから、
-    対象ユーザーの最新プロフィール投稿URLを取得する。
+    複数のプロフィールチャンネルから、
+    対象ユーザー本人の最新プロフィール投稿URLを取得する。
 
     Returns:
-        user_idをキー、DiscordメッセージURLを値とする辞書。
+        {
+            DiscordユーザーID: プロフィール投稿URL
+        }
     """
     if not user_ids:
         return {}
 
-    profile_urls: Dict[int, str] = {}
-    remaining_user_ids = set(user_ids)
+    latest_message_by_user: Dict[
+        int,
+        discord.Message,
+    ] = {}
 
-    async for message in channel.history(
-        limit=None,
-        oldest_first=False,
-    ):
-        user_id = message.author.id
+    for channel in channels:
+        # このチャンネル内ですでに取得したユーザー
+        found_user_ids: Set[int] = set()
 
-        if user_id not in remaining_user_ids:
-            continue
+        async for message in channel.history(
+            limit=None,
+            oldest_first=False,
+        ):
+            user_id = message.author.id
 
-        profile_urls[user_id] = message.jump_url
-        remaining_user_ids.remove(user_id)
+            if user_id not in user_ids:
+                continue
 
-        if not remaining_user_ids:
-            break
+            # 新しい順に検索しているため、
+            # 同一チャンネル内では最初の1件だけ取得
+            if user_id in found_user_ids:
+                continue
 
-    return profile_urls
+            found_user_ids.add(user_id)
+
+            current_message = (
+                latest_message_by_user.get(
+                    user_id
+                )
+            )
+
+            if (
+                current_message is None
+                or message.created_at
+                > current_message.created_at
+            ):
+                latest_message_by_user[
+                    user_id
+                ] = message
+
+            if found_user_ids == user_ids:
+                break
+
+    return {
+        user_id: message.jump_url
+        for user_id, message
+        in latest_message_by_user.items()
+    }

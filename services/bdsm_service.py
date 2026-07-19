@@ -17,6 +17,10 @@ class BdsmResultNotFoundError(BdsmMatchError):
     """指定された診断結果が存在しない場合の例外。"""
 
 
+class BdsmRateLimitError(BdsmMatchError):
+    """相性診断APIのレート制限が発生した場合の例外。"""
+
+
 async def fetch_match_score(
     result_id: str,
     partner_id: str,
@@ -27,29 +31,33 @@ async def fetch_match_score(
 
     Args:
         result_id:
-            比較元の診断結果ID。
+            比較元ユーザーの診断結果ID。
 
         partner_id:
-            比較対象の診断結果ID。
+            比較対象ユーザーの診断結果ID。
 
         session:
             再利用するaiohttp.ClientSession。
-            指定されなければ内部で一時的に作成する。
 
     Returns:
         0～100の相性スコア。
     """
-    result_id = result_id.strip()
-    partner_id = partner_id.strip()
+    normalized_result_id = result_id.strip()
+    normalized_partner_id = partner_id.strip()
 
-    if not result_id or not partner_id:
-        raise ValueError("診断結果IDを2つ指定してください。")
+    if (
+        not normalized_result_id
+        or not normalized_partner_id
+    ):
+        raise ValueError(
+            "診断結果IDを2つ指定してください。"
+        )
 
     if session is not None:
         return await _request_match_score(
             session=session,
-            result_id=result_id,
-            partner_id=partner_id,
+            result_id=normalized_result_id,
+            partner_id=normalized_partner_id,
         )
 
     timeout = aiohttp.ClientTimeout(
@@ -62,8 +70,8 @@ async def fetch_match_score(
         ) as created_session:
             return await _request_match_score(
                 session=created_session,
-                result_id=result_id,
-                partner_id=partner_id,
+                result_id=normalized_result_id,
+                partner_id=normalized_partner_id,
             )
 
     except BdsmMatchError:
@@ -85,7 +93,7 @@ async def _request_match_score(
     result_id: str,
     partner_id: str,
 ) -> int:
-    """BDSM相性診断APIへリクエストを送信する。"""
+    """BDSM相性診断APIへリクエストする。"""
     payload = {
         "rauth[rid]": result_id,
         "partner": partner_id,
@@ -101,6 +109,11 @@ async def _request_match_score(
             if response.status == 404:
                 raise BdsmResultNotFoundError(
                     "指定された診断結果が見つかりません。"
+                )
+
+            if response.status == 429:
+                raise BdsmRateLimitError(
+                    "相性診断APIの利用回数制限に達しました。"
                 )
 
             if response.status != 200:
@@ -123,7 +136,9 @@ async def _request_match_score(
         ) from exc
 
     try:
-        result: Dict[str, Any] = json.loads(response_body)
+        result: Dict[str, Any] = json.loads(
+            response_body
+        )
     except json.JSONDecodeError as exc:
         raise BdsmMatchError(
             "相性診断APIのレスポンスを解析できませんでした。"
@@ -140,7 +155,9 @@ async def _request_match_score(
     return score
 
 
-def _extract_score(result: Dict[str, Any]) -> int:
+def _extract_score(
+    result: Dict[str, Any],
+) -> int:
     """
     APIレスポンスから相性スコアを取得する。
 
@@ -159,18 +176,29 @@ def _extract_score(result: Dict[str, Any]) -> int:
         }
     }
     """
-    score = result.get("score")
+    direct_score = result.get("score")
 
-    if isinstance(score, int) and not isinstance(score, bool):
-        return score
+    if (
+        isinstance(direct_score, int)
+        and not isinstance(direct_score, bool)
+    ):
+        return direct_score
 
     response_data = result.get("response")
 
     if isinstance(response_data, dict):
-        score = response_data.get("score")
+        nested_score = response_data.get(
+            "score"
+        )
 
-        if isinstance(score, int) and not isinstance(score, bool):
-            return score
+        if (
+            isinstance(nested_score, int)
+            and not isinstance(
+                nested_score,
+                bool,
+            )
+        ):
+            return nested_score
 
     raise BdsmMatchError(
         "相性スコアを取得できませんでした。"
