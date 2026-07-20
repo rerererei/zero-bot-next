@@ -34,6 +34,7 @@ class ZeroBot(commands.Bot):
             # VCステータス・カラー表示
             "cogs.voice_status",
             "cogs.color_preview",
+            "cogs.tsuri_manager",
 
             # ログ・アーカイブ・イベント関連
             "cogs.voice_events",
