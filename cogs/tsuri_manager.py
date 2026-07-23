@@ -422,10 +422,46 @@ class TsuriManager(commands.Cog):
         image_path: Optional[str],
         current_setting: Optional[dict],
     ):
+        """
+        古い吊り下げを先に削除してから、
+        新しい吊り下げを投稿する。
+        """
+
         new_messages: List[discord.Message] = []
 
+        # 現在登録されている古い吊り下げのメッセージID
+        old_message_ids = self.get_message_ids(
+            current_setting
+        )
+
+        # ========================================
+        # 1. 古い吊り下げを先に削除
+        # ========================================
+
+        await self.delete_messages(
+            channel=channel,
+            message_ids=old_message_ids,
+        )
+
+        # 削除済みのIDを設定から一旦外しておく
+        temporary_setting = {
+            "guild_id": channel.guild.id,
+            "channel_id": channel.id,
+            "message_ids": [],
+            "text": text,
+            "image_path": image_path,
+        }
+
+        await self._update_setting(
+            channel_id=channel.id,
+            setting=temporary_setting,
+        )
+
         try:
-            # 1投稿目：画像
+            # ========================================
+            # 2. 画像を投稿
+            # ========================================
+
             if image_path:
                 path = Path(image_path)
 
@@ -445,7 +481,10 @@ class TsuriManager(commands.Cog):
                     image_message
                 )
 
-            # 2投稿目：テキスト
+            # ========================================
+            # 3. テキストを投稿
+            # ========================================
+
             if text:
                 embed = discord.Embed(
                     description=text,
@@ -459,6 +498,16 @@ class TsuriManager(commands.Cog):
                 new_messages.append(
                     text_message
                 )
+
+            # 念のため、両方空ならエラー
+            if not new_messages:
+                raise ValueError(
+                    "画像またはテキストのどちらかが必要です。"
+                )
+
+            # ========================================
+            # 4. 新しいメッセージIDを保存
+            # ========================================
 
             new_setting = {
                 "guild_id": channel.guild.id,
@@ -476,25 +525,23 @@ class TsuriManager(commands.Cog):
                 setting=new_setting,
             )
 
-            old_message_ids = self.get_message_ids(
-                current_setting
-            )
-
-            await self.delete_messages(
-                channel=channel,
-                message_ids=old_message_ids,
-            )
-
         except Exception:
-            # 途中まで投稿された新メッセージを削除
+            # 新しい投稿が途中まで成功していた場合は削除
             for message in new_messages:
                 try:
                     await message.delete()
                 except discord.HTTPException:
                     pass
 
-            raise
+            # 内容は残し、メッセージIDだけ空の状態にしておく
+            # 次回の投稿時に再び吊り下げ作成を試行できる
+            await self._update_setting(
+                channel_id=channel.id,
+                setting=temporary_setting,
+            )
 
+            raise
+        
     async def publish_tsuri(
         self,
         channel,
