@@ -14,7 +14,7 @@ from discord.ext import commands
 DATA_FILE = Path("data/tsuri_settings.json")
 IMAGE_DIR = Path("data/tsuri_images")
 
-REFRESH_DELAY_SECONDS = 0.8
+REFRESH_DELAY_SECONDS = 5
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 TSURI_COLOR = discord.Color.from_rgb(128, 128, 128)
@@ -385,7 +385,16 @@ class TsuriManager(commands.Cog):
         self,
         channel,
         message_ids: List[int],
-    ):
+    ) -> bool:
+        """
+        吊り下げ投稿を削除する。
+
+        全件削除済み、または既に存在しない場合はTrue。
+        権限エラーやDiscord APIエラーが発生した場合はFalse。
+        """
+
+        delete_succeeded = True
+
         for message_id in message_ids:
             try:
                 message = await channel.fetch_message(
@@ -395,15 +404,29 @@ class TsuriManager(commands.Cog):
                 await message.delete()
 
             except discord.NotFound:
+                # 既に削除されているため成功扱い
                 pass
 
-            except discord.HTTPException as error:
+            except discord.Forbidden:
+                delete_succeeded = False
+
                 print(
-                    "❌ 吊り下げ投稿の削除失敗: "
+                    "❌ 吊り下げ投稿を削除する権限がありません: "
+                    f"channel={channel.id}, "
+                    f"message={message_id}"
+                )
+
+            except discord.HTTPException as error:
+                delete_succeeded = False
+
+                print(
+                    "❌ 吊り下げ投稿の削除に失敗しました: "
+                    f"channel={channel.id}, "
                     f"message={message_id}, "
                     f"error={error}"
                 )
 
+        return delete_succeeded
     def get_channel_lock(
         self,
         channel_id: int,
@@ -423,39 +446,31 @@ class TsuriManager(commands.Cog):
         current_setting: Optional[dict],
     ):
         """
-        古い吊り下げを先に削除してから、
-        新しい吊り下げを投稿する。
+        古い吊り下げを削除した後、
+        新しい吊り下げを投稿して設定を更新する。
         """
 
         new_messages: List[discord.Message] = []
 
-        # 現在登録されている古い吊り下げのメッセージID
         old_message_ids = self.get_message_ids(
             current_setting
         )
 
         # ========================================
-        # 1. 古い吊り下げを先に削除
+        # 1. 古い吊り下げを削除
         # ========================================
 
-        await self.delete_messages(
+        delete_succeeded = await self.delete_messages(
             channel=channel,
             message_ids=old_message_ids,
         )
 
-        # 削除済みのIDを設定から一旦外しておく
-        temporary_setting = {
-            "guild_id": channel.guild.id,
-            "channel_id": channel.id,
-            "message_ids": [],
-            "text": text,
-            "image_path": image_path,
-        }
-
-        await self._update_setting(
-            channel_id=channel.id,
-            setting=temporary_setting,
-        )
+        if not delete_succeeded:
+            # 古いIDを失わないため、新規投稿も設定更新もしない
+            raise RuntimeError(
+                "古い吊り下げを削除できなかったため、"
+                "再投稿を中止しました。"
+            )
 
         try:
             # ========================================
@@ -477,9 +492,7 @@ class TsuriManager(commands.Cog):
                     )
                 )
 
-                new_messages.append(
-                    image_message
-                )
+                new_messages.append(image_message)
 
             # ========================================
             # 3. テキストを投稿
@@ -495,18 +508,15 @@ class TsuriManager(commands.Cog):
                     embed=embed
                 )
 
-                new_messages.append(
-                    text_message
-                )
+                new_messages.append(text_message)
 
-            # 念のため、両方空ならエラー
             if not new_messages:
                 raise ValueError(
                     "画像またはテキストのどちらかが必要です。"
                 )
 
             # ========================================
-            # 4. 新しいメッセージIDを保存
+            # 4. 投稿成功後に新しいIDを保存
             # ========================================
 
             new_setting = {
@@ -526,22 +536,18 @@ class TsuriManager(commands.Cog):
             )
 
         except Exception:
-            # 新しい投稿が途中まで成功していた場合は削除
+            # 新規投稿が途中まで成功していたら削除
             for message in new_messages:
                 try:
                     await message.delete()
+
                 except discord.HTTPException:
                     pass
 
-            # 内容は残し、メッセージIDだけ空の状態にしておく
-            # 次回の投稿時に再び吊り下げ作成を試行できる
-            await self._update_setting(
-                channel_id=channel.id,
-                setting=temporary_setting,
-            )
-
+            # JSONは更新しない。
+            # 古いIDと設定内容を残し、次回に再試行する。
             raise
-        
+
     async def publish_tsuri(
         self,
         channel,
@@ -621,68 +627,83 @@ class TsuriManager(commands.Cog):
         self,
         channel,
     ):
-        try:
-            await asyncio.sleep(
-                REFRESH_DELAY_SECONDS
-            )
+        """
+        最後の書き込みから一定時間待機し、
+        新しい書き込みがなければ吊り下げを再投稿する。
 
-            await self.refresh_tsuri(
-                channel
-            )
+        待機が完了した時点でタスク管理から外すことで、
+        再投稿処理中に新しい書き込みが来ても
+        実行中の再投稿がキャンセルされないようにする。
+        """
+
+        channel_id = channel.id
+        current_task = asyncio.current_task()
+
+        try:
+            # この待機中のみキャンセル可能
+            await asyncio.sleep(REFRESH_DELAY_SECONDS)
+
+            # ここから先は投稿・削除処理に入るため、
+            # refresh_tasksから先に外す
+            if self.refresh_tasks.get(channel_id) is current_task:
+                self.refresh_tasks.pop(channel_id, None)
+
+            await self.refresh_tsuri(channel)
 
         except asyncio.CancelledError:
+            # 新しい投稿が来て待機がリセットされた
             raise
 
         except Exception as error:
             print(
                 "❌ 吊り下げ再投稿失敗: "
-                f"channel={channel.id}, "
+                f"channel={channel_id}, "
                 f"error={error}"
             )
+
+        finally:
+            # まだ自分が登録されている場合だけ除去
+            if self.refresh_tasks.get(channel_id) is current_task:
+                self.refresh_tasks.pop(channel_id, None)
 
     @commands.Cog.listener()
     async def on_message(
         self,
         message: discord.Message,
     ):
+        # DMは対象外
         if message.guild is None:
             return
 
-        # ZERO-Bot自身の投稿では動かさない
-        if (
-            self.bot.user is not None
-            and message.author.id == self.bot.user.id
-        ):
+        # Botの投稿では動かさない
+        if message.author.bot:
             return
 
+        channel = message.channel
+
         if not isinstance(
-            message.channel,
+            channel,
             SUPPORTED_CHANNEL_TYPES,
         ):
             return
 
-        if not self.get_setting(
-            message.channel.id
-        ):
+        # 吊り下げ未設定のチャンネルは対象外
+        if self.get_setting(channel.id) is None:
             return
 
-        old_task = self.refresh_tasks.get(
-            message.channel.id
-        )
+        # 既に5秒待ちしているタスクがあればキャンセル
+        old_task = self.refresh_tasks.get(channel.id)
 
-        if old_task and not old_task.done():
+        if old_task is not None and not old_task.done():
             old_task.cancel()
 
-        task = asyncio.create_task(
-            self.refresh_after_delay(
-                message.channel
-            )
+        # 最後の投稿から改めて5秒待つ
+        new_task = asyncio.create_task(
+            self.refresh_after_delay(channel)
         )
 
-        self.refresh_tasks[
-            message.channel.id
-        ] = task
-
+        self.refresh_tasks[channel.id] = new_task
+        
     # ========================================
     # 権限
     # ========================================
