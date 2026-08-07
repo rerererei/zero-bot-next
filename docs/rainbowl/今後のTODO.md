@@ -42,3 +42,10 @@
 - [x] `zero_bot_rainbowl_applicants`テーブル作成
 - [x] `zero_bot_guild_config`へ`rainbowl`名前空間投入
 - [x] `zero_bot_guild_config`へ`server_name` / `archive` / `logging`（`voice_text_category_id`のみ）/ `oyanmo` / `leveling` / `profile` / `rankcard`を投入
+- [x] **本番IAMユーザー`zero-bot-user`に`zero_bot_rainbowl_applicants`テーブルへのアクセス権限を追加**（2026-08-07）
+  実機テストで「入場してもロールが付与されない」となり、EC2の`journalctl`で調査した結果、`AccessDeniedException`（`zero-bot-user`にこの新規テーブルへの権限が無かった）と判明。`dynamoDB_zerobot`インラインポリシーのResourceに`zero_bot_rainbowl_applicants`（＋`/*`）を追加して解消。
+  **教訓**：新しいDynamoDBテーブルを作るときは、テーブル作成（`scripts/rainbowl/setup_infra.py`等）だけでなく、**本番で実際にBotが使うIAMユーザー（`zero-bot-user`）のポリシーにテーブルARNを追加する作業も忘れずセットで行うこと**。今回はテーブル作成を自分の管理者権限で行ったため、この権限不足に気づくのが実機テストまで遅れた。
+
+- [x] **Botのロール階層（並び順）を「入場者」ロールより上に修正**（2026-08-07）
+  IAM権限を直した後も「ロールが付与されない」が再発。原因はDiscordのロール階層で、Bot自身のロールが「入場者」ロールより下に位置していたため。Botに管理者権限（Administrator）を付与していても、**他人へのロール付与・剥奪だけはロールの並び順が別途必要**（権限チェックとは別のDiscord仕様）。並び順を修正して解消。
+  **教訓**：「管理者権限を付与した」＝「ロール操作ができる」ではない。ロール付与系の機能を検証するときは、権限だけでなくロール階層（Bot自身のロールを操作対象より上に置く）も忘れずセットで確認すること。

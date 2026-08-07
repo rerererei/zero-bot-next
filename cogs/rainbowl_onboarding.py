@@ -336,7 +336,7 @@ class RainbowlOnboarding(commands.Cog):
                 interaction.user,
                 config,
             )
-        except discord.HTTPException as exc:
+        except Exception as exc:
             print(
                 "[rainbowl] 入会申請処理に失敗しました:"
                 f" guild_id={interaction.guild_id}"

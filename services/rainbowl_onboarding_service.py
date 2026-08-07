@@ -565,13 +565,33 @@ async def process_apply_button(
 
     now_iso = _now_iso()
 
-    success = await asyncio.to_thread(
-        store.set_applied,
-        guild.id,
-        member.id,
-        channel.id,
-        now_iso,
-    )
+    try:
+        success = await asyncio.to_thread(
+            store.set_applied,
+            guild.id,
+            member.id,
+            channel.id,
+            now_iso,
+        )
+    except Exception as exc:
+        # DB更新自体が失敗した場合（権限不足等）、
+        # 作成済みチャンネルを孤立させないようロールバックしてから
+        # 呼び出し元へ例外を伝える
+        print(
+            "[rainbowl] 入会申請のDB更新に失敗しました。"
+            "作成したチャンネルをロールバックします"
+            f" guild_id={guild.id} user_id={member.id}"
+            f" channel_id={channel.id} error={exc}"
+        )
+
+        try:
+            await channel.delete(
+                reason="rainbowl: DB更新失敗のためロールバック"
+            )
+        except discord.HTTPException:
+            pass
+
+        raise
 
     if not success:
         # 直前のチェックと実際の更新の間に競合が発生した場合の
@@ -657,6 +677,14 @@ async def process_profile_candidate_message(
         applicant_channel_id is None
         or int(applicant_channel_id) != message.channel.id
     ):
+        print(
+            "[rainbowl] プロフィール候補メッセージを無視:"
+            " チャンネル不一致"
+            f" guild_id={message.guild.id}"
+            f" user_id={message.author.id}"
+            f" message_channel_id={message.channel.id}"
+            f" db_applicant_channel_id={applicant_channel_id}"
+        )
         return False
 
     now_iso = _now_iso()
@@ -670,6 +698,13 @@ async def process_profile_candidate_message(
     )
 
     if not success:
+        print(
+            "[rainbowl] プロフィール候補メッセージを無視:"
+            " profile_message_id登録済み"
+            f"（status={item.get('status')}）"
+            f" guild_id={message.guild.id}"
+            f" user_id={message.author.id}"
+        )
         return False
 
     emoji = discord.PartialEmoji(
