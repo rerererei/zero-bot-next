@@ -36,8 +36,8 @@
         "join_log_channel_id":        { "S": "1534968774434750645" },
         "passed_notice_channel_id":   { "S": "1534967599614398524" },
 
-        "reception_emoji_id":         { "S": "1403739356438728787" },
-        "reception_emoji_name":       { "S": "uketsukemashita" }
+        "reception_emoji_id":         { "S": "1535212269472849971" },
+        "reception_emoji_name":       { "S": "uketsuke" }
       }
     }
   }

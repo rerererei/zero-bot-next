@@ -16,9 +16,6 @@
 - [ ] **本番サーバーでの実機動作確認（[起動後チェックリスト.md](./起動後チェックリスト.md)）**
   コードは実装済み・構文チェック済みだが、実際にDiscord上で入場〜次へ〜入会申請〜プロフィール提出〜受付〜`/ok`/`/ng`まで一通り動かした確認はまだ行っていない。
 
-- [ ] **Discordの自己紹介文（bio）取得が実際に動くかの検証**
-  `services/rainbowl_onboarding_service.py`の`fetch_user_bio`は、Botトークンで`/users/{id}/profile`を叩く実験的実装。実機で動くか、403等で失敗するかは起動後チェックリストのタイミングで要確認。失敗しても例外は出ず「取得不可」表示になる想定。
-
 - [ ] **プロフィール未提出3日自動キックの日次バッチ**
   仕様としては確定済み（`APPLIED`のまま`applied_at`から3日経過・`profile_message_id`未登録で自動キック）だが、バッチ本体は未実装。「Bot全体で日次実行したい処理をまとめて後で設計したい」とのことで保留中。
 
@@ -49,3 +46,13 @@
 - [x] **Botのロール階層（並び順）を「入場者」ロールより上に修正**（2026-08-07）
   IAM権限を直した後も「ロールが付与されない」が再発。原因はDiscordのロール階層で、Bot自身のロールが「入場者」ロールより下に位置していたため。Botに管理者権限（Administrator）を付与していても、**他人へのロール付与・剥奪だけはロールの並び順が別途必要**（権限チェックとは別のDiscord仕様）。並び順を修正して解消。
   **教訓**：「管理者権限を付与した」＝「ロール操作ができる」ではない。ロール付与系の機能を検証するときは、権限だけでなくロール階層（Bot自身のロールを操作対象より上に置く）も忘れずセットで確認すること。
+
+- [x] **EC2の`zerobot.service`にPYTHONUNBUFFERED=1を追加**（2026-08-07）
+  `journalctl -f`でリアルタイムに`print()`ログが出ず、原因調査が難航していた。systemd経由でパイプ実行するとPythonの標準出力がバッファリングされ、`print()`が即座にjournaldへ流れない典型的な問題と判明。`/etc/systemd/system/zerobot.service`の`[Service]`に`Environment=PYTHONUNBUFFERED=1`を追加して解消。
+  **教訓**：これはrainbowl固有ではなくBot全体に影響する設定。`assets/memo/手順.md`のsystemdサービスファイルの手順にも反映しておきたい（まだ未反映）。
+
+- [x] **「受付」絵文字が`Unknown Emoji`で失敗する問題を解消**（2026-08-07）
+  `reception_emoji_id`（`1403739356438728787`／`uketsukemashita`）でリアクションしようとすると`400 Bad Request (error code: 10014): Unknown Emoji`。絵文字が作り直されていたため、新しい絵文字`<:uketsuke:1535212269472849971>`に差し替え。`zero_bot_guild_config`（DynamoDB）・`json_data/put_rainbowl_config.json`・関連ドキュメントを更新。
+
+- [x] **Discordの自己紹介文（bio）取得の検証結果：Botトークンでは不可と確定**（2026-08-07）
+  実機で`403 Forbidden (error code: 20001): Bots cannot use this endpoint`を確認。`/users/{id}/profile`はBotトークンから利用不可とDiscord側が明示的に拒否している。コードは例外を出さず「取得不可」表示にフォールバックする設計通りに動作した。今後この項目を追う必要はない（bio欄は「取得不可」で運用確定）。

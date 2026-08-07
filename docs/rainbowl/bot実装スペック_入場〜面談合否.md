@@ -64,15 +64,15 @@ Cogは薄く保ち、判定・DynamoDB操作は極力Service/Data層に置く（
     "join_log_channel_id":        { "S": "1534968774434750645" },
     "passed_notice_channel_id":   { "S": "1534967599614398524" },
 
-    "reception_emoji_id":         { "S": "1403739356438728787" },
-    "reception_emoji_name":       { "S": "uketsukemashita" }
+    "reception_emoji_id":         { "S": "1535212269472849971" },
+    "reception_emoji_name":       { "S": "uketsuke" }
   }
 }
 ```
 
 `passed_notice_channel_id`（チャンネル名「合格通知」）：本人専用チャンネルを即時削除するため、合格の旨はここへ投稿する。規約・ルールカテゴリー側のチャンネル（このドキュメントのスコープ外だが、このフローから直接参照するIDとして追加）。
 
-「受付」リアクションはカスタム絵文字 `<:uketsukemashita:1403739356438728787>`。付与・検知どちらも`reception_emoji_id`（+ 判定用に`reception_emoji_name`）で行う。
+「受付」リアクションはカスタム絵文字 `<:uketsuke:1535212269472849971>`。付与・検知どちらも`reception_emoji_id`（+ 判定用に`reception_emoji_name`）で行う。
 
 `join_log_channel_id`はチャンネル「入場者詳細」（`📋 審査・記録`カテゴリー）。
 
@@ -198,7 +198,7 @@ Item形式：
 4. [on_message｜cogs/rainbowl_interview.py]
    → メッセージのチャンネルIDが、送信者本人の applicant_channel_id と一致するかを rainbowl_store で確認
    → 一致し、かつ profile_message_id が未登録の場合のみ「これが面接用プロフィール」として扱う
-     - 「受付」スタンプ（`<:uketsukemashita:1403739356438728787>`）をリアクション
+     - 「受付」スタンプ（`<:uketsuke:1535212269472849971>`）をリアクション
      - profile_message_id を保存、status = PROFILE_SUBMITTED
    → 既に profile_message_id がある場合は通常のやり取りとして無視（リアクションしない）
 
@@ -263,7 +263,7 @@ Item形式：
 
 ### 確定事項（追記）
 
-- 「受付」スタンプ：カスタム絵文字 `<:uketsukemashita:1403739356438728787>`
+- 「受付」スタンプ：カスタム絵文字 `<:uketsuke:1535212269472849971>`
 - 合否コマンド：`/ok`（合格）／`/ng`（不合格）。`staff_role_id`を持つユーザーのみ実行可
 - `/ok` `/ng`とも実行直後にモーダルを表示し、モーダルの送信（`on_submit`）をトリガーにDB更新・ロール変更・キック・Embed投稿を行う（コマンド実行そのものでは何も確定しない）
   - `/ok`：コメント入力欄（任意）
