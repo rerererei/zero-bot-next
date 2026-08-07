@@ -42,7 +42,11 @@ class ZeroBot(commands.Bot):
             "cogs.archive_manager",
 
             # BDSM Check
-            "cogs.bdsm_commands"
+            "cogs.bdsm_commands",
+
+            # rainbowl（入場〜面談合否判定フロー）
+            "cogs.rainbowl_onboarding",
+            "cogs.rainbowl_interview",
 
         ]
 

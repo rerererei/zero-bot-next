@@ -1,0 +1,44 @@
+{
+  "TableName": "zero_bot_guild_config",
+  "Item": {
+    "guild_id": { "S": "1533518300271607929" },
+
+    "rainbowl": {
+      "M": {
+        "entrant_role_id":            { "S": "1534597519793979512" },
+        "applicant_role_id":          { "S": "1534598256787460237" },
+        "passed_role_id":             { "S": "1534598317252808774" },
+        "member_role_id":             { "S": "1534598393370771579" },
+        "staff_role_id":              { "S": "1534598450589732936" },
+
+        "onboarding_category_id":     { "S": "1533523929602199571" },
+        "interview_category_id":      { "S": "1533749814334849154" },
+        "review_category_id":         { "S": "1533524366892077137" },
+
+        "onboarding_channel_ids": {
+          "L": [
+            { "S": "1533524814822903928" },
+            { "S": "1533641922294321253" },
+            { "S": "1533642022764941313" },
+            { "S": "1533712346436862013" },
+            { "S": "1533712403882180688" },
+            { "S": "1534601287843451020" },
+            { "S": "1533712518009327637" }
+          ]
+        },
+
+        "interview_info_channel_id":  { "S": "1533749868147904642" },
+        "interview_voice_channel_id": { "S": "1533712921635328090" },
+
+        "review_profiles_channel_id": { "S": "1534949844794474579" },
+        "review_notes_channel_id":    { "S": "1534949294442811622" },
+        "review_results_channel_id":  { "S": "1534951614429790353" },
+        "join_log_channel_id":        { "S": "1534968774434750645" },
+        "passed_notice_channel_id":   { "S": "1534967599614398524" },
+
+        "reception_emoji_id":         { "S": "1403739356438728787" },
+        "reception_emoji_name":       { "S": "uketsukemashita" }
+      }
+    }
+  }
+}

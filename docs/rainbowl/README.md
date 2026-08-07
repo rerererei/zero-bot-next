@@ -24,15 +24,18 @@
 | `bot設計_ロールとチャンネルID一覧.md` | ロール／カテゴリー／チャンネルのDiscord ID一次情報 | IDに疑問が出たとき、IDを追加・変更するとき |
 | `rainbowl_server_handover.md` | サーバー全体のコンセプト・規約・チャンネル構成（入場〜面談合否フロー以外の範囲も含む全体像） | サーバー全体の文脈を知りたいとき |
 | `channel_texts/` | Discordへそのまま貼り付けるチャンネル本文（入会案内7つ、規約3つ、面談手続き関連） | Botがメッセージを投稿する処理を書くとき、投稿文言をそのまま使う |
+| `起動後チェックリスト.md` | Bot起動後、本番サーバーで動作確認する際の手順（1回だけ行う作業／エンドツーエンドの確認項目） | 実装後、初めて動かして確認するとき |
+| `今後のTODO.md` | 保留中のタスク・忘れそうなことの備忘録。都度追記していく生きたメモ | 作業を再開するとき、何か思い出したいとき |
 
 ---
 
 ## 現在の状態
 
 - ロール・カテゴリー・チャンネルはDiscord上に作成済み、IDもすべて確定済み（`bot設計_ロールとチャンネルID一覧.md`参照）
-- 実装方針は決定済み：`services/rainbowl_config_service.py` ＋ `services/rainbowl_onboarding_service.py` ＋ `data/rainbowl_store.py` ＋ `cogs/rainbowl_onboarding.py` ＋ `cogs/rainbowl_interview.py` の構成（既存の`bdsm`機能と同型）
-- 実コードの実装は**未着手**
-- 「受付」スタンプの絵文字、`/合格` `/不合格`コマンドの正式名称など、いくつかの細部は未決定（`bot実装スペック_入場〜面談合否.md`の末尾「未実装・要決定」を参照）
+- 実コードは実装済み：`services/rainbowl_config_service.py` ＋ `services/rainbowl_onboarding_service.py` ＋ `services/rainbowl_texts.py` ＋ `data/rainbowl_store.py` ＋ `cogs/rainbowl_onboarding.py` ＋ `cogs/rainbowl_interview.py`（既存の`bdsm`機能と同型）
+- AWSインフラ（`zero_bot_rainbowl_applicants`テーブル、`zero_bot_guild_config`の`rainbowl`設定）も投入済み（`scripts/rainbowl/setup_infra.py`）
+- 本番サーバーでの動作確認は**これから**。手順は`起動後チェックリスト.md`を参照
+- 細部の未決定事項（プロフィール未提出3日自動キックの日次バッチ基盤など）は`bot実装スペック_入場〜面談合否.md`の末尾「未実装・要決定」を参照
 
 ---
 
