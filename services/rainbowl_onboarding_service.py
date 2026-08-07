@@ -167,11 +167,24 @@ async def process_member_join(
         config.entrant_role_id
     )
 
-    if entrant_role is not None:
+    if entrant_role is None:
+        print(
+            "[rainbowl] entrant_role_idに一致するロールが"
+            "このギルドに見つかりません"
+            f" guild_id={member.guild.id}"
+            f" entrant_role_id={config.entrant_role_id}"
+        )
+    else:
         try:
             await member.add_roles(
                 entrant_role,
                 reason="rainbowl: 入場",
+            )
+            print(
+                "[rainbowl] entrant_role付与に成功しました"
+                f" guild_id={member.guild.id}"
+                f" user_id={member.id}"
+                f" role_id={entrant_role.id}"
             )
         except discord.HTTPException as exc:
             print(

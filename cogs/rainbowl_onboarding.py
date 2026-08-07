@@ -172,12 +172,24 @@ class RainbowlOnboarding(commands.Cog):
         self,
         member: discord.Member,
     ) -> None:
+        print(
+            "[rainbowl] on_member_join発火:"
+            f" guild_id={member.guild.id}"
+            f" user_id={member.id}"
+            f" is_bot={member.bot}"
+        )
+
         if member.bot:
             return
 
         config = await self._get_config(member.guild.id)
 
         if config is None:
+            print(
+                "[rainbowl] rainbowl設定が見つからないため"
+                "スキップします"
+                f" guild_id={member.guild.id}"
+            )
             return
 
         try:
