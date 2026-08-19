@@ -17,6 +17,7 @@ from data.store import (
 )
 
 from utils.helpers import _xp_for_level
+from utils.rankcard_draw import generate_rank_card
 import datetime
 
 from data.voice_daily_store import (
@@ -247,6 +248,26 @@ class ZBAdmin(commands.Cog):
 
         # 🔹 defer 済みなので followup で返す
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ------------------------
+    # /zbadmin rank
+    # ------------------------
+    @zbadmin.command(
+        name="rank",
+        description="指定ユーザーのRANK CARDを表示（管理者専用）",
+    )
+    @app_commands.describe(user="RANK CARDを表示する対象ユーザー")
+    async def rank(self, interaction: discord.Interaction, user: discord.Member):
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "このコマンドは **管理者専用** だよ。",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(thinking=True)
+        await generate_rank_card(self.bot, interaction, target_user=user)
 
     # ------------------------
     # /zbadmin voice_stats

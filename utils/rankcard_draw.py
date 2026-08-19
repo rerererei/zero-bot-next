@@ -17,10 +17,14 @@ from data.store import (
 DEFAULT_BG = "default.png"
 
 # ★ rank 生成の本体関数（外から呼び出す）
-async def generate_rank_card(bot, interaction: discord.Interaction):
+async def generate_rank_card(
+    bot,
+    interaction: discord.Interaction,
+    target_user: Optional[discord.Member] = None,
+):
 
     guild = interaction.guild
-    user = interaction.user
+    user = target_user or interaction.user
     guild_id = guild.id
     user_id = user.id
 
