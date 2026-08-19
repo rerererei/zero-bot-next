@@ -76,25 +76,35 @@ def get_voice_connected_members(guild: discord.Guild) -> list[discord.Member]:
     - profile セクション内:
         {
           "profile": {
-            "excluded_voice_channel_ids": ["123456789012345678", ...]
+            "excluded_voice_channel_ids": ["123456789012345678", ...],
+            "excluded_voice_category_ids": ["123456789012345678", ...]
           }
         }
-      で指定されたVCは除外する
+      で指定されたVC・カテゴリー配下のVCは除外する
+      （excluded_category_ids はVC入退室ログ等の別機能用キーのため使わない）
     """
 
     cfg = config_store.get_config(guild.id) or {}
     profile_cfg = cfg.get("profile") or {}
 
-    raw_excluded = profile_cfg.get("excluded_voice_channel_ids", [])
+    raw_excluded_channels = profile_cfg.get("excluded_voice_channel_ids", [])
     try:
-        excluded_voice_channels = {int(c) for c in raw_excluded}
+        excluded_voice_channels = {int(c) for c in raw_excluded_channels}
     except (TypeError, ValueError):
         excluded_voice_channels = set()
+
+    raw_excluded_categories = profile_cfg.get("excluded_voice_category_ids", [])
+    try:
+        excluded_voice_categories = {int(c) for c in raw_excluded_categories}
+    except (TypeError, ValueError):
+        excluded_voice_categories = set()
 
     members: list[discord.Member] = []
 
     for vc in guild.voice_channels:
         if vc.id in excluded_voice_channels:
+            continue
+        if vc.category_id in excluded_voice_categories:
             continue
 
         members.extend(m for m in vc.members if not m.bot)
