@@ -16,15 +16,13 @@ from data.store import (
 
 DEFAULT_BG = "default.png"
 
-# ★ rank 生成の本体関数（外から呼び出す）
-async def generate_rank_card(
+# ★ RANK CARD画像を生成して discord.File として返す（送信方法は呼び出し側に委ねる）
+async def build_rank_card_file(
     bot,
-    interaction: discord.Interaction,
-    target_user: Optional[discord.Member] = None,
-):
+    guild: discord.Guild,
+    user: discord.Member,
+) -> discord.File:
 
-    guild = interaction.guild
-    user = target_user or interaction.user
     guild_id = guild.id
     user_id = user.id
 
@@ -373,14 +371,24 @@ async def generate_rank_card(
         bar_color=CYAN_COLOR,
     )
 
-    # 最後に送信
     buffer = BytesIO()
     bg.save(buffer, format="PNG")
     buffer.seek(0)
 
-    file = discord.File(buffer, filename="rank-card.png")
+    return discord.File(buffer, filename="rank-card.png")
 
-    # ★ ここでは followup で送る（最初のレスポンスは /zb rank 側で済ませている）
+
+# ★ スラッシュコマンドから呼ぶ用：画像生成してinteractionのfollowupで送る
+async def generate_rank_card(
+    bot,
+    interaction: discord.Interaction,
+    target_user: Optional[discord.Member] = None,
+):
+    guild = interaction.guild
+    user = target_user or interaction.user
+
+    file = await build_rank_card_file(bot, guild, user)
+
     await interaction.followup.send(
         content="",
         file=file,

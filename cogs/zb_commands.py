@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from data.guild_config_store import GuildConfigStore
-from utils.rankcard_draw import generate_rank_card
+from utils.rankcard_draw import build_rank_card_file
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,12 @@ class ZBCommands(commands.Cog):
                 else interaction.channel
             )
 
-            await generate_rank_card(self.bot, interaction)
+            # ★ interactionのfollowupは使わない（元メッセージへの「返信」表示になってしまうため）
+            #   channelへ直接新規メッセージとして投稿する
+            file = await build_rank_card_file(self.bot, guild, interaction.user)
+
+            if isinstance(button_channel, discord.TextChannel):
+                await button_channel.send(file=file)
 
             if original_message is not None:
                 try:
