@@ -139,11 +139,14 @@ class OyanmoSelectView(discord.ui.View):
             return
 
         for member in moved:
-            await self.post_channel.send(
-                get_random_success_message(
+            embed = discord.Embed(
+                title="おやんも実行",
+                description=get_random_success_message(
                     self.requester.guild.id, member.display_name
-                )
+                ),
+                color=0x32CD32,
             )
+            await self.post_channel.send(embed=embed)
 
         if self.log_channel is not None:
             mentions = " ".join(m.mention for m in moved)
