@@ -5,6 +5,12 @@ from typing import Optional
 import discord
 from discord.ext import commands
 
+from cogs.oyanmo import (
+    OyanmoSelectView,
+    get_log_channel,
+    get_target_voice_channel,
+)
+
 
 TRIGGER_PHRASE = "こいよ"
 
@@ -229,6 +235,61 @@ class VoiceStatusView(discord.ui.View):
                 "ZeroBotの権限を確認してね。",
                 ephemeral=True,
             )
+
+    @discord.ui.button(
+        label="おやんも",
+        style=discord.ButtonStyle.danger,
+        emoji="😴",
+    )
+    async def oyanmo_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        guild = interaction.guild
+
+        if guild is None or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message(
+                "サーバー内で実行してね。",
+                ephemeral=True,
+            )
+            return
+
+        channel = guild.get_channel(self.voice_channel_id)
+
+        if not isinstance(channel, discord.VoiceChannel):
+            await interaction.response.send_message(
+                "対象のボイスチャンネルが見つからなかったよ。",
+                ephemeral=True,
+            )
+            return
+
+        candidates = [m for m in channel.members if not m.bot]
+
+        if not candidates:
+            await interaction.response.send_message(
+                "このVCには今誰もいないよ。",
+                ephemeral=True,
+            )
+            return
+
+        target_channel = get_target_voice_channel(guild)
+
+        if target_channel is None:
+            await interaction.response.send_message(
+                "❌ おやんも移動先VCが設定されていないよ。管理者さんに確認してね。",
+                ephemeral=True,
+            )
+            return
+
+        select_view = OyanmoSelectView(
+            candidates=candidates,
+            target_channel=target_channel,
+            post_channel=channel,
+            log_channel=get_log_channel(guild),
+            requester=interaction.user,
+        )
+        await interaction.response.send_message(view=select_view, ephemeral=True)
 
     async def on_timeout(self):
         for item in self.children:

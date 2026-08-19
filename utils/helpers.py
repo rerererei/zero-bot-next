@@ -1,5 +1,4 @@
 import discord
-from discord import app_commands
 import re
 import json
 import os
@@ -69,11 +68,9 @@ def normalize_text_channel_name(name: str) -> str:
     return name.strip("-")
 
 
-async def voice_users_autocomplete(
-    interaction: discord.Interaction, current: str
-):
+def get_voice_connected_members(guild: discord.Guild) -> list[discord.Member]:
     """
-    ボイスチャンネルのユーザーをオートコンプリート（DB対応版）
+    サーバー内で現在いずれかのVCに接続しているメンバー一覧を返す（DB対応版）。
 
     - ギルドごとの設定は DynamoDB (guild_config_store) から取得
     - profile セクション内:
@@ -82,48 +79,27 @@ async def voice_users_autocomplete(
             "excluded_voice_channel_ids": ["123456789012345678", ...]
           }
         }
-      のような形を想定
+      で指定されたVCは除外する
     """
 
-    guild = interaction.guild
-    if guild is None:
-        debug_log("[AUTO] サーバー情報なし")
-        return []
-
-    guild_id = guild.id
-
-    # 🔹 DB からギルド設定を取得
-    cfg = config_store.get_config(guild_id) or {}
+    cfg = config_store.get_config(guild.id) or {}
     profile_cfg = cfg.get("profile") or {}
 
-    # DB に未設定なら空扱い
     raw_excluded = profile_cfg.get("excluded_voice_channel_ids", [])
     try:
-        excluded_voice_channels = [int(c) for c in raw_excluded]
+        excluded_voice_channels = {int(c) for c in raw_excluded}
     except (TypeError, ValueError):
-        excluded_voice_channels = []
+        excluded_voice_channels = set()
 
-    current_lower = (current or "").lower()
-    voice_members: list[str] = []
-
-    debug_log(f"[AUTO] 除外VC = {excluded_voice_channels}")
+    members: list[discord.Member] = []
 
     for vc in guild.voice_channels:
-        # 🔹 DB で除外指定された VC をスキップ
         if vc.id in excluded_voice_channels:
-            debug_log(f"[AUTO] 除外VCスキップ: {vc.name} ({vc.id})")
             continue
 
-        for member in vc.members:
-            if current_lower in member.display_name.lower():
-                voice_members.append(member.display_name)
+        members.extend(m for m in vc.members if not m.bot)
 
-    debug_log(f"[AUTO] 候補 = {voice_members[:25]}")
-
-    return [
-        app_commands.Choice(name=name, value=name)
-        for name in voice_members[:25]
-    ]
+    return members
 
 # ============================================
 # XP / レベル関連ヘルパ
