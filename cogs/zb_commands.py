@@ -50,9 +50,9 @@ class RankCardOpenButton(discord.ui.Button):
 
     def __init__(self) -> None:
         super().__init__(
-            label="RANK CARD",
+            label="レベル確認",
             style=discord.ButtonStyle.primary,
-            emoji="🎴",
+            emoji="🪪",
             custom_id=RANKCARD_OPEN_BUTTON_CUSTOM_ID,
         )
 
