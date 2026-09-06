@@ -20,12 +20,54 @@ from services.rainbowl_config_service import (
 )
 from services.rainbowl_onboarding_service import (
     build_verdict_embed,
+    process_acknowledge_passed_button,
     process_pass_verdict,
     process_profile_candidate_message,
     process_reception_reaction,
     process_reject_verdict,
     resolve_applicant_from_channel,
 )
+
+
+ACKNOWLEDGE_PASSED_BUTTON_CUSTOM_ID = "rainbowl_acknowledge_passed"
+
+
+class AcknowledgePassedButton(discord.ui.Button):
+    """合格通知メッセージに設置する「了解しました」ボタン。"""
+
+    def __init__(self):
+        super().__init__(
+            label="了解しました",
+            style=discord.ButtonStyle.success,
+            custom_id=ACKNOWLEDGE_PASSED_BUTTON_CUSTOM_ID,
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        cog = interaction.client.get_cog(
+            "RainbowlInterview"
+        )
+
+        if cog is None:
+            await interaction.response.send_message(
+                "現在このボタンは利用できません。",
+                ephemeral=True,
+            )
+            return
+
+        await cog.handle_acknowledge_passed_button(
+            interaction
+        )
+
+
+class RainbowlAcknowledgePassedView(discord.ui.View):
+    """「了解しました」ボタンの永続View。"""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(AcknowledgePassedButton())
 
 
 class PassVerdictModal(discord.ui.Modal):
@@ -69,6 +111,7 @@ class PassVerdictModal(discord.ui.Modal):
                 self.member,
                 comment,
                 self.config,
+                notice_view=RainbowlAcknowledgePassedView(),
             )
         except Exception as exc:
             print(
@@ -308,6 +351,76 @@ class RainbowlInterview(commands.Cog):
             )
 
     # ========================================
+    # 「了解しました」ボタン（合格通知）
+    # ========================================
+
+    async def handle_acknowledge_passed_button(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        if (
+            interaction.guild is None
+            or not isinstance(
+                interaction.user,
+                discord.Member,
+            )
+        ):
+            await interaction.response.send_message(
+                "サーバー内で使用してください。",
+                ephemeral=True,
+            )
+            return
+
+        config = await self._get_config(
+            interaction.guild_id
+        )
+
+        if config is None:
+            await interaction.response.send_message(
+                "設定を取得できませんでした。",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
+
+        try:
+            executed = await process_acknowledge_passed_button(
+                interaction.user,
+                config,
+            )
+        except Exception as exc:
+            print(
+                "[rainbowl] 新人移行処理に失敗しました:"
+                f" guild_id={interaction.guild_id}"
+                f" user_id={interaction.user.id}"
+                f" error={exc}"
+            )
+            await interaction.followup.send(
+                "処理に失敗しました。"
+                "運営へお問い合わせください。",
+                ephemeral=True,
+            )
+            return
+
+        if not executed:
+            await interaction.followup.send(
+                "このボタンは現在使用できません"
+                "（対象外か、既に処理済みです）。",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(
+            "ありがとうございます！"
+            "新人ロールを付与しました。",
+            ephemeral=True,
+        )
+
+    # ========================================
     # 合否判定コマンド
     # ========================================
 
@@ -434,3 +547,6 @@ class RainbowlInterview(commands.Cog):
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(RainbowlInterview(bot))
+
+    # 永続View：Bot起動のたびに再登録する
+    bot.add_view(RainbowlAcknowledgePassedView())

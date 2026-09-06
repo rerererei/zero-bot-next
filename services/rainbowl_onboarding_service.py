@@ -28,6 +28,7 @@ STATUS_LABELS = {
     "SCHEDULING": "日程調整中",
     "INTERVIEW_DONE": "面談実施済み・判定待ち",
     "PASSED": "合格",
+    "NEWCOMER": "新人",
     "REJECTED": "不合格",
     "WITHDRAWN": "辞退",
 }
@@ -912,6 +913,7 @@ async def process_pass_verdict(
     member: discord.Member,
     comment: str,
     config: RainbowlGuildConfig,
+    notice_view: Optional[discord.ui.View] = None,
 ) -> None:
     """`/ok`モーダル送信時の確定処理。"""
     guild = member.guild
@@ -966,9 +968,14 @@ async def process_pass_verdict(
     if passed_notice_channel is not None:
         try:
             await passed_notice_channel.send(
-                rainbowl_texts.PASSED_NOTICE_TEXT_TEMPLATE.format(
-                    mention=member.mention,
-                )
+                content=member.mention,
+                embed=discord.Embed(
+                    description=(
+                        rainbowl_texts.PASSED_NOTICE_TEXT_TEMPLATE
+                    ),
+                    color=discord.Color.light_grey(),
+                ),
+                view=notice_view,
             )
         except discord.HTTPException as exc:
             print(
@@ -976,6 +983,69 @@ async def process_pass_verdict(
                 f" guild_id={guild.id} user_id={member.id}"
                 f" error={exc}"
             )
+
+
+async def process_acknowledge_passed_button(
+    member: discord.Member,
+    config: RainbowlGuildConfig,
+) -> bool:
+    """
+    合格通知メッセージの「了解しました」ボタン押下時の処理。
+
+    statusがPASSEDの場合のみNEWCOMERへ進め、
+    合格ロールを外して新人ロールを付与する。
+
+    成功した場合はTrue、既に処理済み・対象外の場合はFalseを返す。
+    """
+    guild = member.guild
+    now_iso = _now_iso()
+
+    transitioned = await asyncio.to_thread(
+        store.set_newcomer,
+        guild.id,
+        member.id,
+        now_iso,
+    )
+
+    if not transitioned:
+        return False
+
+    passed_role = guild.get_role(config.passed_role_id)
+    newcomer_role = guild.get_role(
+        config.newcomer_role_id
+    )
+
+    if (
+        passed_role is not None
+        and passed_role in member.roles
+    ):
+        try:
+            await member.remove_roles(
+                passed_role,
+                reason="rainbowl: 新人へ移行",
+            )
+        except discord.HTTPException as exc:
+            print(
+                "[rainbowl] passed_role削除に失敗しました"
+                f" guild_id={guild.id} user_id={member.id}"
+                f" error={exc}"
+            )
+
+    if newcomer_role is not None:
+        try:
+            await member.add_roles(
+                newcomer_role,
+                reason="rainbowl: 新人へ移行",
+            )
+        except discord.HTTPException as exc:
+            print(
+                "[rainbowl] newcomer_role付与に"
+                "失敗しました"
+                f" guild_id={guild.id} user_id={member.id}"
+                f" error={exc}"
+            )
+
+    return True
 
     await _delete_applicant_channel(
         guild,

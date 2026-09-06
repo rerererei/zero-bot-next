@@ -394,6 +394,50 @@ class RainbowlStore:
             },
         )
 
+    # =============================
+    #    合格通知の「了解しました」ボタン
+    # =============================
+    def set_newcomer(
+        self,
+        guild_id: int,
+        user_id: int,
+        now_iso: str,
+    ) -> bool:
+        """
+        statusがPASSEDの場合のみNEWCOMERへ進める
+        （多重処理防止）。
+
+        成功した場合はTrue、既に処理済み・対象外の場合はFalseを返す。
+        """
+        try:
+            self.table.update_item(
+                Key=self._key(guild_id, user_id),
+                UpdateExpression=(
+                    "SET #status = :newcomer,"
+                    " updated_at = :now"
+                ),
+                ConditionExpression=(
+                    "#status = :passed"
+                ),
+                ExpressionAttributeNames={
+                    "#status": "status",
+                },
+                ExpressionAttributeValues={
+                    ":newcomer": "NEWCOMER",
+                    ":passed": "PASSED",
+                    ":now": now_iso,
+                },
+            )
+            return True
+
+        except ClientError as exc:
+            if (
+                exc.response["Error"]["Code"]
+                == "ConditionalCheckFailedException"
+            ):
+                return False
+            raise
+
     def set_rejected(
         self,
         guild_id: int,

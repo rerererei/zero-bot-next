@@ -13,6 +13,11 @@
 - [ ] **`rainbowl_server_handover.md` 13.1章とBDSM機能有効化の関係を注記する**
   13.1章に「MBTI・BDSM診断は相性計算へ使わない」という記載があるが、これは独自相性診断ロジックの話。今回有効化する`/bdsm_check`（ユーザー同士がbdsmtest.orgの結果を持ち寄って個別に相性%を見る独立コマンド）とは別物という認識で進めている。`bdsm`のID投入時にあわせて、13.1章か`bot設計_ロールとチャンネルID一覧.md`あたりに一言注記を追加する。
 
+- [ ] **「新人」ロールのDiscord側作成待ち**
+  合格通知メッセージの『了解しました』ボタン（[cogs/rainbowl_interview.py](../../cogs/rainbowl_interview.py)の`AcknowledgePassedButton`）を押すと、合格ロールを外して新人ロールを付与する処理は実装済み。ただし`newcomer_role_id`をDiscord側で作成してIDを控え、`zero_bot_guild_config`の`rainbowl`名前空間へ追加するまでは`RainbowlGuildConfig`の読み込み自体が失敗し、**rainbowl機能全体（入場〜合否判定含む）が動かなくなる**（新設フィールドが必須項目のため）。ロール作成・ID投入とデプロイは必ずセットで行うこと。
+  ロール作成時の注意：規約・ルールカテゴリーの閲覧権限を、合格ロールと同等以上に新人ロールへ設定すること（でないとボタン押下時に規約が見えなくなる瞬間ができる）。
+  ID投入後は[json_data/put_rainbowl_config.json](../../json_data/put_rainbowl_config.json)にも追記し、DBとの記録を一致させること。
+
 - [ ] **本番サーバーでの実機動作確認（[起動後チェックリスト.md](./起動後チェックリスト.md)）**
   コードは実装済み・構文チェック済みだが、実際にDiscord上で入場〜次へ〜入会申請〜プロフィール提出〜受付〜`/ok`/`/ng`まで一通り動かした確認はまだ行っていない。
 

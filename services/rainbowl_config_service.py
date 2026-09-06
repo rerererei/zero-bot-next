@@ -22,6 +22,7 @@ class RainbowlGuildConfig:
     entrant_role_id: int
     applicant_role_id: int
     passed_role_id: int
+    newcomer_role_id: int
     member_role_id: int
     staff_role_id: int
 
@@ -166,6 +167,10 @@ def build_rainbowl_config(
         passed_role_id=_required_positive_int(
             rainbowl_config,
             "passed_role_id",
+        ),
+        newcomer_role_id=_required_positive_int(
+            rainbowl_config,
+            "newcomer_role_id",
         ),
         member_role_id=_required_positive_int(
             rainbowl_config,
