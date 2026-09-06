@@ -58,6 +58,18 @@ def get_button_channel(guild: discord.Guild) -> Optional[discord.TextChannel]:
     return channel if isinstance(channel, discord.TextChannel) else None
 
 
+def get_button_description(guild_id: int) -> Optional[str]:
+    """常設おやんもボタンに添える説明文（button_description）を取得する。"""
+    return get_oyanmo_config(guild_id).get("button_description") or None
+
+
+async def send_oyanmo_button_message(channel: discord.TextChannel) -> discord.Message:
+    """常設おやんもボタン（＋説明文があればEmbed）をチャンネルへ新規投稿する。"""
+    description = get_button_description(channel.guild.id)
+    embed = discord.Embed(description=description) if description else None
+    return await channel.send(embed=embed, view=OyanmoOpenButtonView())
+
+
 class OyanmoUserSelect(discord.ui.Select):
     """VC接続者から飛ばす相手を選ぶセレクト（複数選択可）。"""
 
@@ -243,7 +255,7 @@ class OyanmoCog(commands.Cog):
                     pass
 
             if isinstance(button_channel, discord.TextChannel):
-                await button_channel.send(view=OyanmoOpenButtonView())
+                await send_oyanmo_button_message(button_channel)
 
         view = OyanmoSelectView(
             candidates=candidates,
@@ -276,7 +288,7 @@ class OyanmoCog(commands.Cog):
             )
             return
 
-        await channel.send(view=OyanmoOpenButtonView())
+        await send_oyanmo_button_message(channel)
         await interaction.followup.send(
             f"✅ {channel.mention} にボタンを設置しました。", ephemeral=True
         )
