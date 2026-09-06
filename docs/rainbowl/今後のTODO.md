@@ -17,7 +17,15 @@
   コードは実装済み・構文チェック済みだが、実際にDiscord上で入場〜次へ〜入会申請〜プロフィール提出〜受付〜`/ok`/`/ng`まで一通り動かした確認はまだ行っていない。
 
 - [ ] **プロフィール未提出3日自動キックの日次バッチ**
-  仕様としては確定済み（`APPLIED`のまま`applied_at`から3日経過・`profile_message_id`未登録で自動キック）だが、バッチ本体は未実装。「Bot全体で日次実行したい処理をまとめて後で設計したい」とのことで保留中。
+  仕様としては確定済み（`APPLIED`のまま`applied_at`から3日経過・`profile_message_id`未登録で自動キック）だが、バッチ本体は未実装。実行基盤の技術方針は決定済み（`rainbowl_server_handover.md`12章：cronは使わず、常駐Bot内の`tasks.loop`で日次バッチ用Cog（例：`cogs/daily_batch.py`）にまとめて実装する）。この自動キックと11章の月次活動整理を同じCogにまとめて実装する。
+
+- [ ] **月次活動整理（11章）の集計バッチ本体は未着手**
+  データ層（日次テキスト活動の記録、月次処理済みガード、メンバーごとの継続状態管理）のみ先行実装済み。集計処理そのものを書くには、まだ以下が未決定・未実装：
+  - 活動量の計算式／テキストとVCの配点／月間の最低活動基準（20章に記載の未決定事項）
+  - 特別除外ロールの設定場所（`guild_config`への新namespace化を想定するが未確定）
+
+- [ ] **入会後プロフィール（`data/rainbowl/member_state_store.py`の`initial_profile`/`current_profile`）の記入・編集フローが未設計**
+  データ層は用意済みだが、Botへの投稿方法・編集検知の仕組み（面接用プロフィールの`profile_message_id`方式を踏襲するか等）は別機能として別途設計する。
 
 - [ ] **表示名がDiscordのチャンネル名制約に引っかかる場合の見え方**
   本人専用チャンネル名`"{表示名}さん（{DiscordID}）"`の実際の変換結果（絵文字・記号除去、半角スペース→ハイフン等）は未検証。事前対策はせず「困ったら直す」方針で確定済みなので、実機確認時に見え方がおかしければ都度対応する。
@@ -56,3 +64,10 @@
 
 - [x] **Discordの自己紹介文（bio）取得の検証結果：Botトークンでは不可と確定**（2026-08-07）
   実機で`403 Forbidden (error code: 20001): Bots cannot use this endpoint`を確認。`/users/{id}/profile`はBotトークンから利用不可とDiscord側が明示的に拒否している。コードは例外を出さず「取得不可」表示にフォールバックする設計通りに動作した。今後この項目を追う必要はない（bio欄は「取得不可」で運用確定）。
+
+- [x] **rainbowl専用XP（`zero_bot_rainbowl_xp`）の実装と、RANK CARD・`/zbadmin`系コマンドとの連携**（2026-09-06）
+  [cogs/rainbowl_voice_leveling.py](../../cogs/rainbowl_voice_leveling.py) / [cogs/rainbowl_text_leveling.py](../../cogs/rainbowl_text_leveling.py)を新設し、rainbowlギルドのXP付与を汎用の`voice_leveling.py`/`text_leveling.py`から分離（`guild_config`の`rainbowl`名前空間の有無で二重付与を防止）。`utils/rankcard_draw.py`・`cogs/zbadmin_commands.py`・`utils/helpers.py`の`_xp_for_level`は、新設した[data/xp_router.py](../../data/xp_router.py)経由でギルドに応じたテーブル（`zero_bot_xp` / `zero_bot_rainbowl_xp`）へ自動振り分けするよう変更。
+
+- [x] **月次活動整理（11章）・XP独自化用の新規DynamoDBテーブル4つの作成、および`zero-bot-user`のIAM権限追加**（2026-09-06）
+  `zero_bot_text_daily_stats` / `zero_bot_rainbowl_activity_review` / `zero_bot_rainbowl_member_state` / `zero_bot_rainbowl_xp`を[scripts/setup_activity_tables.py](../../scripts/setup_activity_tables.py)で作成（管理者権限のAWS認証情報が必要、`zero-bot-user`の最小権限では`CreateTable`不可）。IAM側は`dynamoDB_zerobot`インラインポリシーに4テーブル分のARNを個別追加しようとしたところ、**ユーザーのインラインポリシーは2048バイト上限**に達し`LimitExceededException`で失敗。既存テーブルが全て`zero_bot_`プレフィックスだったため、個別列挙をやめて`Resource`を`arn:aws:dynamodb:ap-northeast-1:472277900480:table/zero_bot_*`のワイルドカード1行に統合して解消（`zero-bot-user`の`.env`認証情報から4テーブル全てへの`DescribeTable`が通ることを確認済み）。
+  **教訓**：IAMの**ユーザー**インラインポリシー（ロールではない）には2048バイトという小さいサイズ上限がある。テーブルをARNで個別列挙し続ける方式は、テーブル数が増えると遠からず上限に当たる。命名規則が統一されているなら、最初からワイルドカードでまとめておく方が長期的に安全。

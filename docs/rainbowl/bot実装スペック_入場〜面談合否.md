@@ -14,7 +14,7 @@
 ```
 services/rainbowl_config_service.py       # guild_config["rainbowl"] を dataclass 化（読み取り専用）
 services/rainbowl_onboarding_service.py   # 段階開放・チャンネル生成・状態遷移のロジック本体
-data/rainbowl_store.py                    # 応募者ごとの状態を zero_bot_rainbowl_applicants テーブルへ読み書き
+data/rainbowl/applicants_store.py         # 応募者ごとの状態を zero_bot_rainbowl_applicants テーブルへ読み書き
 cogs/rainbowl_onboarding.py               # on_member_join／「次へ」ボタン／入会申請ボタン
 cogs/rainbowl_interview.py                # 「受付」リアクション検知／プロフィール転記／/ok /ng コマンド
 json_data/put_rainbowl_config.json        # zero_bot_guild_config への追加投入用（guild_id: 1533518300271607929）
@@ -121,7 +121,7 @@ Item形式：
 }
 ```
 
-`data/rainbowl_store.py`は`DynamoStore`と同様に`get_item`/`update_item`（`SET`/`ADD`式）でラップする。テーブル名・リージョンは`DynamoStore`のコンストラクタ引数と同じ形（`table_name="zero_bot_rainbowl_applicants"`）で渡せるようにする。`application_history`への追加は`list_append`、`join_count`は`ADD`でインクリメントする。
+`data/rainbowl/applicants_store.py`は`DynamoStore`と同様に`get_item`/`update_item`（`SET`/`ADD`式）でラップする。テーブル名・リージョンは`DynamoStore`のコンストラクタ引数と同じ形（`table_name="zero_bot_rainbowl_applicants"`）で渡せるようにする。`application_history`への追加は`list_append`、`join_count`は`ADD`でインクリメントする。
 
 ### 2-3. 入場時Embed（`join_log_channel_id`＝「入場者詳細」チャンネル）
 
@@ -174,7 +174,7 @@ Item形式：
    → join_log_channel_id へ Embed を投稿（内容は2-3章参照）
 
 2. [ボタン「次へ」｜cogs/rainbowl_onboarding.py → services/rainbowl_onboarding_service.py]
-   → data/rainbowl_store.py から現在の onboarding_step を取得
+   → data/rainbowl/applicants_store.py から現在の onboarding_step を取得
    → custom_id の step と一致する場合のみ処理（不一致は無視。二重押下・古いボタン対策）
    → 押下者個人へ、次チャンネルの view_channel:allow オーバーライドを追加
    → onboarding_step をインクリメントして保存

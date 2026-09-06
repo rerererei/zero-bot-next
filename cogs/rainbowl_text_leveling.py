@@ -1,8 +1,16 @@
+# cogs/rainbowl_text_leveling.py
+#
+# rainbowl専用のテキストXP付与。cogs/text_leveling.pyのフォーク。
+# guild_configに"rainbowl"名前空間を持つギルドだけを処理し、
+# XPは zero_bot_rainbowl_xp（data/rainbowl/xp_store.py）へ書き込む。
+# 汎用のtext_leveling.py側は、rainbowl設定を持つギルドを処理対象から
+# 除外しているため、二重付与にはならない。
+
 import time
 import discord
 from discord.ext import commands
 
-from data.store import add_text_xp
+from data.rainbowl.xp_store import add_text_xp
 from data.text_daily_store import add_daily_text_activity
 from data.guild_config_store import GuildConfigStore
 
@@ -12,7 +20,7 @@ COOLDOWN_SECONDS = 10  # 1ユーザーあたり10秒クールダウン
 
 def calc_text_xp(message: discord.Message) -> int:
     """
-    テキストXP計算ロジック
+    テキストXP計算ロジック（rainbowl専用。汎用側とは独立に調整する）
     - 1〜79文字   → 1XP
     - 80〜159文字 → 2XP
     - 160〜200文字→ 3XP（それ以上書いても3）
@@ -31,8 +39,8 @@ def calc_text_xp(message: discord.Message) -> int:
     return xp
 
 
-class TextLeveling(commands.Cog):
-    """テキストXP付与を担当するCog"""
+class RainbowlTextLeveling(commands.Cog):
+    """rainbowl専用 テキストXP付与を担当するCog"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -42,7 +50,6 @@ class TextLeveling(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # DM/自分/他botは無視
         if message.author.bot:
             return
         if message.guild is None:
@@ -51,10 +58,8 @@ class TextLeveling(commands.Cog):
         guild_id = message.guild.id
         user_id = message.author.id
 
-        # rainbowl専用の設定を持つギルドは cogs/rainbowl_text_leveling.py が
-        # 専用テーブル（zero_bot_rainbowl_xp）で処理するため、ここでは対象外にする
         cfg = self.guild_config_store.get_config(guild_id) or {}
-        if cfg.get("rainbowl"):
+        if not cfg.get("rainbowl"):
             return
 
         # クールダウンチェック
@@ -72,9 +77,6 @@ class TextLeveling(commands.Cog):
         add_daily_text_activity(guild_id, user_id, xp=xp, message_count=1)
         self._last_given_ts[key] = now
 
-        # デバッグ用
-        # print(f"[TextLeveling] {guild_id=}, {user_id=} に {xp} XP 付与")
-
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(TextLeveling(bot))
+    await bot.add_cog(RainbowlTextLeveling(bot))

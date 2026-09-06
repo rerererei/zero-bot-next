@@ -6,7 +6,7 @@ import datetime
 
 from config import debug_log
 from data.guild_config_store import GuildConfigStore
-from data.store import calc_level_from_xp
+from data.xp_router import calc_level_from_xp
 
 # ============================================
 # プロフィールメッセージ（従来の JSON 保存版）
@@ -115,12 +115,13 @@ def get_voice_connected_members(guild: discord.Guild) -> list[discord.Member]:
 # XP / レベル関連ヘルパ
 # ============================================
 
-def _xp_for_level(target_level: int) -> float:
+def _xp_for_level(target_level: int, guild_id: int) -> float:
     """
     指定レベルになるために必要な『通算XP』を逆算する。
 
     calc_level_from_xp を使って二分探索で求めるので、
-    XPカーブの実装に依存しない。
+    XPカーブの実装に依存しない。guild_idに応じたカーブ
+    （generic/rainbowl）を使う。
     """
     if target_level <= 1:
         return 0.0
@@ -130,7 +131,7 @@ def _xp_for_level(target_level: int) -> float:
     hi = 100.0
 
     while True:
-        lv, _, _ = calc_level_from_xp(hi)
+        lv, _, _ = calc_level_from_xp(guild_id, hi)
         if lv >= target_level:
             break
         hi *= 2
@@ -140,7 +141,7 @@ def _xp_for_level(target_level: int) -> float:
     # lo..hi の範囲で「そのレベルになる最小XP」を二分探索
     for _ in range(40):  # 精度十分
         mid = (lo + hi) / 2
-        lv, _, _ = calc_level_from_xp(mid)
+        lv, _, _ = calc_level_from_xp(guild_id, mid)
         if lv >= target_level:
             hi = mid
         else:

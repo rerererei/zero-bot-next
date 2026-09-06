@@ -6,7 +6,7 @@ from discord.ext import commands
 from typing import Optional
 import logging
 
-from data.store import (
+from data.xp_router import (
     get_voice_xp,
     get_text_xp,
     add_voice_xp,        # ★ これを必ず入れる
@@ -221,8 +221,8 @@ class ZBAdmin(commands.Cog):
         voice_xp = get_voice_xp(guild_id, user.id)
         text_xp = get_text_xp(guild_id, user.id)
 
-        v_lv, v_cur, v_need = calc_level_from_xp(voice_xp)
-        t_lv, t_cur, t_need = calc_level_from_xp(text_xp)
+        v_lv, v_cur, v_need = calc_level_from_xp(guild_id, voice_xp)
+        t_lv, t_cur, t_need = calc_level_from_xp(guild_id, text_xp)
 
         embed = discord.Embed(
             title=f"XP情報：{user.display_name}",
@@ -519,7 +519,7 @@ class ZBAdmin(commands.Cog):
             new_xp = get_text_xp(guild_id, user.id)
 
         # 新しいXPからレベル計算
-        lv, cur, need = calc_level_from_xp(new_xp)
+        lv, cur, need = calc_level_from_xp(guild_id, new_xp)
 
         xp_kind = "ボイス" if target.value == "voice" else "テキスト"
 
@@ -584,7 +584,7 @@ class ZBAdmin(commands.Cog):
         guild_id = interaction.guild.id
 
         # そのレベルになるために必要な通算XPを逆算
-        target_xp = _xp_for_level(level)
+        target_xp = _xp_for_level(level, guild_id)
 
         if target.value == "voice":
             current_xp = get_voice_xp(guild_id, user.id)
@@ -596,7 +596,7 @@ class ZBAdmin(commands.Cog):
             add_text_xp(guild_id, user.id, delta)
 
         # 念のため結果を再計算して表示
-        v_lv, v_cur, v_need = calc_level_from_xp(target_xp)
+        v_lv, v_cur, v_need = calc_level_from_xp(guild_id, target_xp)
 
         xp_kind = "ボイス" if target.value == "voice" else "テキスト"
 
@@ -656,7 +656,7 @@ class ZBAdmin(commands.Cog):
             if voice_xp <= 0:
                 continue
 
-            level, _, _ = calc_level_from_xp(voice_xp)
+            level, _, _ = calc_level_from_xp(guild_id, voice_xp)
             entries.append((member, voice_xp, level))
 
         # XP降順でソート
@@ -728,7 +728,7 @@ class ZBAdmin(commands.Cog):
             if text_xp <= 0:
                 continue
 
-            level, _, _ = calc_level_from_xp(text_xp)
+            level, _, _ = calc_level_from_xp(guild_id, text_xp)
             entries.append((member, text_xp, level))
 
         entries.sort(key=lambda x: x[1], reverse=True)

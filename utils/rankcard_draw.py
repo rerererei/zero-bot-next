@@ -5,13 +5,13 @@ from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont, ImageColor
 from typing import Optional, Tuple
 from utils.rankcard_s3 import load_rank_bg_from_s3
-from data.store import get_rank_bg_key
 
-from data.store import (
+from data.xp_router import (
     get_voice_xp,
     get_text_xp,
     calc_level_from_xp,
     get_guild_user_stats,
+    get_rank_bg_key,
 )
 
 DEFAULT_BG = "default.png"
@@ -30,8 +30,8 @@ async def build_rank_card_file(
     voice_xp = get_voice_xp(guild_id, user_id)
     text_xp = get_text_xp(guild_id, user_id)
 
-    v_lv, v_cur, v_need = calc_level_from_xp(voice_xp)
-    t_lv, t_cur, t_need = calc_level_from_xp(text_xp)
+    v_lv, v_cur, v_need = calc_level_from_xp(guild_id, voice_xp)
+    t_lv, t_cur, t_need = calc_level_from_xp(guild_id, text_xp)
 
     stats = get_guild_user_stats(guild_id)
 

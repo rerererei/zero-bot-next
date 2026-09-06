@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 import discord
 
-from data.rainbowl_store import RainbowlStore
+from data.rainbowl.applicants_store import RainbowlStore
 from services import rainbowl_texts
 from services.rainbowl_config_service import RainbowlGuildConfig
 from utils.helpers import normalize_text_channel_name

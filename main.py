@@ -24,6 +24,10 @@ class ZeroBot(commands.Bot):
             "cogs.voice_leveling",
             "cogs.text_leveling",
 
+            # レベリング系（rainbowl専用、独自テーブル）
+            "cogs.rainbowl_voice_leveling",
+            "cogs.rainbowl_text_leveling",
+
             # ZB コマンド系
             "cogs.zb_commands",
             "cogs.zbadmin_commands",

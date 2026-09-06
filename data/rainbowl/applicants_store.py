@@ -1,4 +1,4 @@
-# data/rainbowl_store.py
+# data/rainbowl/applicants_store.py
 
 from decimal import Decimal
 from typing import Any, Dict, List, Optional

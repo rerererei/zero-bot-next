@@ -657,6 +657,29 @@ VC活動：30
 
 新規メンバーは、入会後30日未満を月次判定対象外とする案がある。
 
+### 実装状況（集計の技術的な土台）
+
+活動量集計・在籍判定に使うデータ層のみ先行実装済み。ロール付与・専用チャンネル作成・運営通知・残留ボタン等のDiscord操作側はまだ未実装。
+
+- [data/text_daily_store.py](../../data/text_daily_store.py)：テキスト活動を日次（guild+date単位）で記録する新規ストア（rainbowl専用ではなくBot全体の汎用テーブル、[docs/db/](../db/README.md)参照）。[voice_daily_store.py](../../data/voice_daily_store.py)と対称的なAPI（`get_guild_total_in_range`等）を持つ。[cogs/text_leveling.py](../../cogs/text_leveling.py)の既存クールダウン・文字数フィルタを通過した投稿のみを対象とする。
+- [data/rainbowl/activity_review_store.py](../../data/rainbowl/activity_review_store.py)：`zero_bot_rainbowl_activity_review`テーブル（新規、要AWS側作成、[定義](./db/zero_bot_rainbowl_activity_review.md)）。ギルド+対象月の集計処理済みガード（`BATCH#{target_month}`、冪等性）のみを持つ。IN_PROGRESSのまま古く残っている場合のみ再クレーム可能にし、Bot障害からの復旧に対応。
+- [data/rainbowl/member_state_store.py](../../data/rainbowl/member_state_store.py)：`zero_bot_rainbowl_member_state`テーブル（新規、要AWS側作成、[定義](./db/zero_bot_rainbowl_member_state.md)）。入会後メンバーの継続的な状態をguild_id+user_idで1件だけ持つ（[applicants_store.py](../../data/rainbowl/applicants_store.py)と同じ「現在の状態＋履歴配列」の設計）。以下をまとめて持つ：
+  - `membership_status`（ACTIVE/KICK_PENDING/KICKED）
+  - `pause`：活動休止申請の状態（17章の「活動休止の申請」の実データ置き場）
+  - `exempt`：運営による個別除外登録
+  - `current_review` / `review_history`：進行中の在籍確認サイクルと過去サイクルのアーカイブ
+  - `initial_profile` / `current_profile`：入会後プロフィール（面接用プロフィールとは別物）。初回記載は`initial_profile`に一度だけ記録され不変、以後の編集は`current_profile`のみ都度上書きする
+
+以下は実装中に判明した追加の未決定事項（今回は着手せず、次のステップで検討）：
+
+- 特別除外「ロール」の設定場所が未定（DB化はせず`guild_config`へ新namespace化し、ロールID一覧を集計時に参照する想定だが未確定）
+- 集計バッチ本体（`guild_config`から配点・基準値を読み、除外ロジックを適用して`member_state_store`へレビューサイクルを開始する処理）は上記が固まってから実装する
+- 入会後プロフィールの記入・編集フロー（Botへの投稿方法、`record_initial_profile`/`update_current_profile`の呼び出しタイミング）は別機能として別途設計する
+
+新規テーブル`zero_bot_rainbowl_activity_review`・`zero_bot_text_daily_stats`・`zero_bot_rainbowl_member_state`（および`zero_bot_rainbowl_xp`）は、2026-09-06にAWS側で作成済み。IAM権限は`zero-bot-user`の`dynamoDB_zerobot`ポリシーを個別ARN列挙から`zero_bot_*`ワイルドカードへ統合する形で対応済み（`今後のTODO.md`参照）。
+
+rainbowl専用のテーブル・コードは、Bot全体で共用する汎用テーブルと区別するため`data/rainbowl/`配下にまとめ、テーブル名も`zero_bot_rainbowl_`プレフィックスで統一している（テーブル定義は[docs/rainbowl/db/](./db/README.md)）。`zero_bot_text_daily_stats`のみ、rainbowl専用ではなくBot全体の汎用テーブルのため`data/`直下・[docs/db/](../db/README.md)側に置いている。
+
 ---
 
 ## 12. 月次バッチの技術方針
@@ -678,47 +701,28 @@ VC活動：30
 
 終了時刻は「月末23:59:59」ではなく、翌月初の時刻未満として扱う。
 
-### cronの利用
+### 実行基盤：Bot内`tasks.loop`（cronは使わない）
 
-EC2上でcronを利用できる。
+当初はcron→DynamoDBジョブ登録→常駐Botが拾う構成を検討していたが、以下の理由から**cronは使わず、常駐Bot自身の`tasks.loop`だけで完結させる**方針に変更した。
+
+- Botは`systemd`（`Restart=always`）で24時間常駐しているため、外部cronでBotを定期起動する必要がそもそもない。
+- `discord.ext.tasks`の`tasks.loop`は[cogs/voice_leveling.py](../../cogs/voice_leveling.py)の`voice_snapshot_loop`（60秒間隔）で既に実運用実績があり、同じパターンを踏襲できる。
+- 同一プロセス内で完結するため、「cronからBotトークンで別プロセスを起動＝二重ログイン・競合」の懸念が構造的に発生しない。
+- crontab・ジョブ用DynamoDBテーブル・cron実行ユーザーのIAM権限といった部品が増えず、`git fetch`＋`systemctl restart`（[deploy.sh](../../deploy.sh)）だけでバッチロジックの変更も反映できる。
+- EC2再起動やBot障害からの復旧時も、「その分・その時刻にEC2が生きている」必要がなく、次にBotが起動して`tasks.loop`が1回でも回れば未処理分に追いつける。
 
 推奨構成：
 
-- cron：毎日、前月分が未処理か確認
-- cron：毎日、期限切れの在籍確認対象者がいないか確認
-- Discord操作：常駐Bot本体が行う
+- 新設Cog（例：`cogs/daily_batch.py`）に、JST日付が変わったタイミングで1日1回発火する`tasks.loop`を1本持たせる。
+- そのループの中で、以下のバッチジョブを順番に呼び出す（Bot全体で日次実行したい処理をまとめて1箇所に集約する）：
+  - プロフィール未提出3日自動キック（`今後のTODO.md`の保留事項）
+  - 月次活動集計＋在籍確認フラグ設定（翌月1日のみ実処理が走る）
+  - 在籍確認期限切れの自動キック
+- 各ジョブは下記の冪等性方針に従い「未処理なら実行する」形にするため、ループが想定より多く／少なく発火しても副作用が出ない（Bot再起動直後の重複発火や、日付境界の多重発火に対する保険にもなる）。
 
-cronからBotトークンを使って別のDiscord Botプロセスを起動する方法は、二重ログインや競合の可能性があるため避けたい。
+### 手動実行手段
 
-### 推奨アーキテクチャ
-
-```text
-cron
-↓
-DynamoDBへジョブを登録
-↓
-常駐Botがジョブを取得
-↓
-ロール付与、チャンネル作成、通知、キックなどを実行
-↓
-ジョブを完了状態へ更新
-```
-
-別案として、Bot本体へ内部APIを持たせ、cronからHTTPで起動する方式もある。
-
-### cron例
-
-```cron
-CRON_TZ=Asia/Tokyo
-
-# 毎日00:10に前月分の未処理確認
-10 0 * * * cd /opt/mybot && /opt/mybot/venv/bin/python -m scripts.monthly_activity_review >> /var/log/mybot/monthly.log 2>&1
-
-# 毎日00:20に期限切れ確認
-20 0 * * * cd /opt/mybot && /opt/mybot/venv/bin/python -m scripts.process_due_kicks >> /var/log/mybot/due_kicks.log 2>&1
-```
-
-毎月1日だけ実行するより、毎日実行して「前月分が未処理なら処理する」方式のほうが、EC2停止やBot障害から復旧した際に追いつける。
+cron案にあった「SSHしてスクリプトを単体実行できる」というメリットの代替として、`cogs/zbadmin_commands.py`に運営専用の強制実行コマンド（例：`/zbadmin run_daily_batch`）を用意する。バッチが失敗・スキップされた場合の手動リトライ手段として使う。
 
 ### 冪等性
 

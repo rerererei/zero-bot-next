@@ -32,7 +32,7 @@
 ## 現在の状態
 
 - ロール・カテゴリー・チャンネルはDiscord上に作成済み、IDもすべて確定済み（`bot設計_ロールとチャンネルID一覧.md`参照）
-- 実コードは実装済み：`services/rainbowl_config_service.py` ＋ `services/rainbowl_onboarding_service.py` ＋ `services/rainbowl_texts.py` ＋ `data/rainbowl_store.py` ＋ `cogs/rainbowl_onboarding.py` ＋ `cogs/rainbowl_interview.py`（既存の`bdsm`機能と同型）
+- 実コードは実装済み：`services/rainbowl_config_service.py` ＋ `services/rainbowl_onboarding_service.py` ＋ `services/rainbowl_texts.py` ＋ `data/rainbowl/applicants_store.py` ＋ `cogs/rainbowl_onboarding.py` ＋ `cogs/rainbowl_interview.py`（既存の`bdsm`機能と同型）。rainbowl専用のDynamoDBテーブル定義は[docs/rainbowl/db/](./db/README.md)にまとめてある
 - AWSインフラ（`zero_bot_rainbowl_applicants`テーブル、`zero_bot_guild_config`の`rainbowl`設定）も投入済み（`scripts/rainbowl/setup_infra.py`）
 - 本番サーバーでの動作確認は**これから**。手順は`起動後チェックリスト.md`を参照
 - 細部の未決定事項（プロフィール未提出3日自動キックの日次バッチ基盤など）は`bot実装スペック_入場〜面談合否.md`の末尾「未実装・要決定」を参照

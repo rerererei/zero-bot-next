@@ -1,21 +1,27 @@
-# cogs/voice_leveling.py
+# cogs/rainbowl_voice_leveling.py
+#
+# rainbowl専用のVCレベリング & 統計。cogs/voice_leveling.pyのフォーク。
+# guild_configに"rainbowl"名前空間を持つギルドだけを処理し、
+# XP・統計は zero_bot_rainbowl_xp（data/rainbowl/xp_store.py）へ書き込む。
+# 汎用のvoice_leveling.py側は、rainbowl設定を持つギルドを処理対象から
+# 除外しているため、二重付与にはならない。
 
 from discord.ext import commands, tasks
 from datetime import datetime, timezone, timedelta
 
-from data.store import (
+from data.rainbowl.xp_store import (
     add_voice_xp,
     get_guild_user_stats,
-    get_voice_meta,      # 統計メタ情報の取得（JsonStore 経由）
-    update_voice_meta,   # 統計メタ情報の更新（JsonStore 経由）
+    get_voice_meta,
+    update_voice_meta,
 )
 from data.guild_config_store import GuildConfigStore
 
-# ★ 日次VC集計テーブルへの書き込み
+# 日次VC集計テーブル（生データの集計元）は汎用テーブルを共用する
 from data.voice_daily_store import add_daily_voice_minutes
 
 
-# ===== XP計算ロジック =====
+# ===== XP計算ロジック（rainbowl専用。汎用側とは独立に調整する） =====
 def calc_voice_xp_per_minute(member_count: int, is_muted: bool) -> float:
     """
     1分あたりのボイスXPを計算する。
@@ -23,7 +29,6 @@ def calc_voice_xp_per_minute(member_count: int, is_muted: bool) -> float:
     """
     base = 0.3
 
-    # 人数ボーナス
     if member_count <= 1:
         bonus = 0.8
     elif member_count <= 3:
@@ -33,55 +38,47 @@ def calc_voice_xp_per_minute(member_count: int, is_muted: bool) -> float:
     else:
         bonus = 2.0
 
-    # ミュート倍率
     mute_factor = 0.5 if is_muted else 1.0
 
     return base * bonus * mute_factor
 
 
-# タイムゾーン（JSTで集計したい場合）
 JST = timezone(timedelta(hours=9))
 
 
-class VoiceLeveling(commands.Cog):
-    """VCレベリング & 統計"""
+class RainbowlVoiceLeveling(commands.Cog):
+    """rainbowl専用 VCレベリング & 統計"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.guild_config_store = GuildConfigStore() 
+        self.guild_config_store = GuildConfigStore()
 
-        # VCスナップショットループ開始
         self.voice_snapshot_loop.start()
-        print("[VoiceLeveling] voice_snapshot_loop started")
+        print("[RainbowlVoiceLeveling] voice_snapshot_loop started")
 
     def cog_unload(self):
-        # Cogアンロード時にループ停止
         self.voice_snapshot_loop.cancel()
 
     @tasks.loop(seconds=60)
     async def voice_snapshot_loop(self):
         """
         60秒ごとにVC参加者にXP & 統計を付与する。
+        guild_configに"rainbowl"名前空間があるギルドだけを対象とする。
         統計値（total_time など）はすべて『分』でカウントする。
         """
         TICK_SECONDS = 60
         TICK_MINUTES = TICK_SECONDS / 60.0  # = 1.0 分
 
         for guild in self.bot.guilds:
-            # ==========================
-            # ギルドごとの設定取得
-            # ==========================
             cfg = self.guild_config_store.get_config(guild.id) or {}
 
-            # rainbowl専用の設定を持つギルドは cogs/rainbowl_voice_leveling.py が
-            # 専用テーブル（zero_bot_rainbowl_xp）で処理するため、ここでは対象外にする
-            if cfg.get("rainbowl"):
+            if not cfg.get("rainbowl"):
                 continue
 
             leveling_cfg = cfg.get("leveling") or {}
 
             raw_ignored_cat = leveling_cfg.get("ignored_category_ids", []) or []
-            raw_ignored_ch  = leveling_cfg.get("ignored_channel_ids", []) or []
+            raw_ignored_ch = leveling_cfg.get("ignored_channel_ids", []) or []
 
             try:
                 ignored_category_ids = {int(x) for x in raw_ignored_cat}
@@ -93,21 +90,13 @@ class VoiceLeveling(commands.Cog):
             except (TypeError, ValueError):
                 ignored_channel_ids = set()
 
-            # print(f"[VoiceLeveling] guild={guild.id} ignored_cat={ignored_category_ids}, ignored_ch={ignored_channel_ids}")
-
             for vc in guild.voice_channels:
-                # ==========================
-                # 除外カテゴリ / 除外チャンネル判定
-                # ==========================
-                # チャンネルIDが除外対象
                 if vc.id in ignored_channel_ids:
                     continue
 
-                # カテゴリIDが除外対象
                 if vc.category and vc.category.id in ignored_category_ids:
                     continue
 
-                # Bot 以外の参加メンバーだけを見る
                 members = [m for m in vc.members if not m.bot]
                 if not members:
                     continue
@@ -177,7 +166,7 @@ class VoiceLeveling(commands.Cog):
 
                     update_voice_meta(guild.id, member.id, meta)
 
-                    # ===== 日次VC集計テーブル =====
+                    # ===== 日次VC集計テーブル（汎用テーブルを共用） =====
                     try:
                         solo = small = mid = big = 0.0
                         if member_count == 1:
@@ -202,15 +191,7 @@ class VoiceLeveling(commands.Cog):
                             muted_min=muted,
                         )
                     except Exception as e:
-                        print(f"[VoiceLeveling] add_daily_voice_minutes error: {e}")
-
-        # （この下の total_users 集計部分はそのままでOK）
-
-        # 各ギルドごとの保存済みユーザー数を集計
-        total_users = 0
-        for guild in self.bot.guilds:
-            stats = get_guild_user_stats(guild.id)  # { user_id: {voice_xp, text_xp} }
-            total_users += len(stats)
+                        print(f"[RainbowlVoiceLeveling] add_daily_voice_minutes error: {e}")
 
     @voice_snapshot_loop.before_loop
     async def before_voice_snapshot_loop(self):
@@ -218,4 +199,4 @@ class VoiceLeveling(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(VoiceLeveling(bot))
+    await bot.add_cog(RainbowlVoiceLeveling(bot))
