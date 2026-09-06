@@ -13,11 +13,6 @@
 - [ ] **`rainbowl_server_handover.md` 13.1章とBDSM機能有効化の関係を注記する**
   13.1章に「MBTI・BDSM診断は相性計算へ使わない」という記載があるが、これは独自相性診断ロジックの話。今回有効化する`/bdsm_check`（ユーザー同士がbdsmtest.orgの結果を持ち寄って個別に相性%を見る独立コマンド）とは別物という認識で進めている。`bdsm`のID投入時にあわせて、13.1章か`bot設計_ロールとチャンネルID一覧.md`あたりに一言注記を追加する。
 
-- [ ] **「新人」ロールのDiscord側作成待ち**
-  合格通知メッセージの『了解しました』ボタン（[cogs/rainbowl_interview.py](../../cogs/rainbowl_interview.py)の`AcknowledgePassedButton`）を押すと、合格ロールを外して新人ロールを付与する処理は実装済み。ただし`newcomer_role_id`をDiscord側で作成してIDを控え、`zero_bot_guild_config`の`rainbowl`名前空間へ追加するまでは`RainbowlGuildConfig`の読み込み自体が失敗し、**rainbowl機能全体（入場〜合否判定含む）が動かなくなる**（新設フィールドが必須項目のため）。ロール作成・ID投入とデプロイは必ずセットで行うこと。
-  ロール作成時の注意：規約・ルールカテゴリーの閲覧権限を、合格ロールと同等以上に新人ロールへ設定すること（でないとボタン押下時に規約が見えなくなる瞬間ができる）。
-  ID投入後は[json_data/put_rainbowl_config.json](../../json_data/put_rainbowl_config.json)にも追記し、DBとの記録を一致させること。
-
 - [ ] **本番サーバーでの実機動作確認（[起動後チェックリスト.md](./起動後チェックリスト.md)）**
   コードは実装済み・構文チェック済みだが、実際にDiscord上で入場〜次へ〜入会申請〜プロフィール提出〜受付〜`/ok`/`/ng`まで一通り動かした確認はまだ行っていない。
 
@@ -76,3 +71,7 @@
 - [x] **月次活動整理（11章）・XP独自化用の新規DynamoDBテーブル4つの作成、および`zero-bot-user`のIAM権限追加**（2026-09-06）
   `zero_bot_text_daily_stats` / `zero_bot_rainbowl_activity_review` / `zero_bot_rainbowl_member_state` / `zero_bot_rainbowl_xp`を[scripts/setup_activity_tables.py](../../scripts/setup_activity_tables.py)で作成（管理者権限のAWS認証情報が必要、`zero-bot-user`の最小権限では`CreateTable`不可）。IAM側は`dynamoDB_zerobot`インラインポリシーに4テーブル分のARNを個別追加しようとしたところ、**ユーザーのインラインポリシーは2048バイト上限**に達し`LimitExceededException`で失敗。既存テーブルが全て`zero_bot_`プレフィックスだったため、個別列挙をやめて`Resource`を`arn:aws:dynamodb:ap-northeast-1:472277900480:table/zero_bot_*`のワイルドカード1行に統合して解消（`zero-bot-user`の`.env`認証情報から4テーブル全てへの`DescribeTable`が通ることを確認済み）。
   **教訓**：IAMの**ユーザー**インラインポリシー（ロールではない）には2048バイトという小さいサイズ上限がある。テーブルをARNで個別列挙し続ける方式は、テーブル数が増えると遠からず上限に当たる。命名規則が統一されているなら、最初からワイルドカードでまとめておく方が長期的に安全。
+
+- [x] **合格通知の『了解しました』ボタン（新人ロールへの切り替え）を実装、Embed化**（2026-09-06）
+  `cogs/rainbowl_interview.py`に永続Viewのボタンを追加し、押すと合格ロールを外して新人ロールを付与するように実装（`RainbowlGuildConfig`に`newcomer_role_id`を新設）。合格通知メッセージもEmbed形式（グレーの左線）に変更し、「問題なければ以下のボタンを押して次に進んでください。」を追記。ロール名は当初「仮会員」で実装したが「新人」に変更。
+  **教訓（本番障害）**：`newcomer_role_id`を`RainbowlGuildConfig`の必須項目にした状態でデプロイしたところ、`zero_bot_guild_config`のDB側にまだこの項目が無かったため`RainbowlGuildConfig`の読み込みが全滅し、**入場処理（`on_member_join`）を含むrainbowl機能全体が一時的に停止**した（新規ロールIDを作成・投入する前にコードだけ先にデプロイしてしまったことが原因）。新人ロール（ID `1546058079727259658`）を作成後、`zero_bot_guild_config`へ`update_item`で即時投入して復旧。**今後、設定に必須フィールドを追加するときは、DBへの値投入を先に済ませてからコードをデプロイする（またはコード側を一時的にoptional扱いにしてから段階的に必須化する）こと。**
