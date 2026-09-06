@@ -422,8 +422,11 @@ async def cleanup_onboarding_overrides(
     config: RainbowlGuildConfig,
 ) -> None:
     """
-    申請中ロール付与時に、チャンネル2〜7に残っている
+    合格処理時に、チャンネル2〜7に残っている
     本人向け個別オーバーライドを削除する。
+
+    申請中の間（面談待ち・判定待ち）は入会案内カテゴリーを
+    引き続き参照できるよう、申請時点では削除しない。
     """
     for channel_id in config.onboarding_channel_ids[1:]:
         channel = guild.get_channel(channel_id)
@@ -642,12 +645,6 @@ async def process_apply_button(
             )
 
     await send_applicant_channel_intro(channel)
-
-    await cleanup_onboarding_overrides(
-        guild,
-        member,
-        config,
-    )
 
     return channel
 
@@ -960,6 +957,12 @@ async def process_pass_verdict(
                 f" guild_id={guild.id} user_id={member.id}"
                 f" error={exc}"
             )
+
+    await cleanup_onboarding_overrides(
+        guild,
+        member,
+        config,
+    )
 
     passed_notice_channel = guild.get_channel(
         config.passed_notice_channel_id
