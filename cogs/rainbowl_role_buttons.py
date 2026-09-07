@@ -71,13 +71,34 @@ def _parse_role_id_from_custom_id(
         return None
 
 
+BUTTON_STYLE_BY_NAME = {
+    "primary": discord.ButtonStyle.primary,
+    "secondary": discord.ButtonStyle.secondary,
+    "success": discord.ButtonStyle.success,
+    "danger": discord.ButtonStyle.danger,
+}
+
+DEFAULT_BUTTON_STYLE_NAME = "success"
+
+
 class RoleToggleButton(discord.ui.Button):
     """押すたびにロールの付与/剥奪を切り替えるボタン。"""
 
-    def __init__(self, label: str, role_id: int, row: int):
+    def __init__(
+        self,
+        label: str,
+        role_id: int,
+        row: int,
+        style_name: str = DEFAULT_BUTTON_STYLE_NAME,
+    ):
+        style = BUTTON_STYLE_BY_NAME.get(
+            style_name,
+            BUTTON_STYLE_BY_NAME[DEFAULT_BUTTON_STYLE_NAME],
+        )
+
         super().__init__(
             label=label,
-            style=discord.ButtonStyle.secondary,
+            style=style,
             custom_id=f"{ROLE_TOGGLE_CUSTOM_ID_PREFIX}{role_id}",
             row=row,
         )
@@ -116,16 +137,22 @@ class RoleButtonCategoryView(discord.ui.View):
                         label=role_entry["label"],
                         role_id=int(role_entry["role_id"]),
                         row=row,
+                        style_name=role_entry.get(
+                            "style",
+                            DEFAULT_BUTTON_STYLE_NAME,
+                        ),
                     )
                 )
 
 
-def _build_category_message_content(
+def _build_category_embed(
     category: Dict[str, Any],
-) -> str:
-    title = category.get("title", "")
-    description = category.get("description", "")
-    return f"**{title}**\n\n{description}"
+) -> discord.Embed:
+    return discord.Embed(
+        title=category.get("title", ""),
+        description=category.get("description", ""),
+        color=discord.Color.green(),
+    )
 
 
 class RainbowlRoleButtons(commands.Cog):
@@ -300,7 +327,7 @@ class RainbowlRoleButtons(commands.Cog):
 
         for category in categories:
             await channel.send(
-                content=_build_category_message_content(category),
+                embed=_build_category_embed(category),
                 view=RoleButtonCategoryView(category),
             )
 
