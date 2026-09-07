@@ -9,7 +9,7 @@
         "applicant_role_id":          { "S": "1534598256787460237" },
         "passed_role_id":             { "S": "1534598317252808774" },
         "newcomer_role_id":           { "S": "1546058079727259658" },
-        "member_role_id":             { "S": "1534598393370771579" },
+        "member_role_id":             { "S": "1546061905716846592" },
         "staff_role_id":              { "S": "1534598450589732936" },
 
         "onboarding_category_id":     { "S": "1533523929602199571" },
@@ -36,6 +36,7 @@
         "review_results_channel_id":  { "S": "1534951614429790353" },
         "join_log_channel_id":        { "S": "1534968774434750645" },
         "passed_notice_channel_id":   { "S": "1534967599614398524" },
+        "role_button_channel_id":     { "S": "1546542373952033001" },
 
         "reception_emoji_id":         { "S": "1535212269472849971" },
         "reception_emoji_name":       { "S": "uketsuke" }

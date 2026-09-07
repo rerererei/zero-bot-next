@@ -36,7 +36,7 @@ Cogは薄く保ち、判定・DynamoDB操作は極力Service/Data層に置く（
     "entrant_role_id":            { "S": "1534597519793979512" },
     "applicant_role_id":          { "S": "1534598256787460237" },
     "passed_role_id":             { "S": "1534598317252808774" },
-    "member_role_id":             { "S": "1534598393370771579" },
+    "member_role_id":             { "S": "1546061905716846592" },
     "staff_role_id":              { "S": "1534598450589732936" },
 
     "onboarding_category_id":     { "S": "1533523929602199571" },

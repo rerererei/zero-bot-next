@@ -75,3 +75,10 @@
 - [x] **合格通知の『了解しました』ボタン（新人ロールへの切り替え）を実装、Embed化**（2026-09-06）
   `cogs/rainbowl_interview.py`に永続Viewのボタンを追加し、押すと合格ロールを外して新人ロールを付与するように実装（`RainbowlGuildConfig`に`newcomer_role_id`を新設）。合格通知メッセージもEmbed形式（グレーの左線）に変更し、「問題なければ以下のボタンを押して次に進んでください。」を追記。ロール名は当初「仮会員」で実装したが「新人」に変更。
   **教訓（本番障害）**：`newcomer_role_id`を`RainbowlGuildConfig`の必須項目にした状態でデプロイしたところ、`zero_bot_guild_config`のDB側にまだこの項目が無かったため`RainbowlGuildConfig`の読み込みが全滅し、**入場処理（`on_member_join`）を含むrainbowl機能全体が一時的に停止**した（新規ロールIDを作成・投入する前にコードだけ先にデプロイしてしまったことが原因）。新人ロール（ID `1546058079727259658`）を作成後、`zero_bot_guild_config`へ`update_item`で即時投入して復旧。**今後、設定に必須フィールドを追加するときは、DBへの値投入を先に済ませてからコードをデプロイする（またはコード側を一時的にoptional扱いにしてから段階的に必須化する）こと。**
+
+- [x] **セルフサービスのロール付与ボタン機能を実装**（2026-09-08）
+  [cogs/rainbowl_role_buttons.py](../../cogs/rainbowl_role_buttons.py)を新設。ロール一覧・見出し文・説明文は[data/rainbowl/role_buttons.json](../../data/rainbowl/role_buttons.json)から読み込む（コード変更不要でロール追加・文言変更が可能）。ボタン押下でロールをトグル付与/剥奪、連打対策は[utils/interaction_cooldown.py](../../utils/interaction_cooldown.py)に汎用関数として切り出し（1秒クールダウン）。運営専用コマンド`/set_role_button`で、対象チャンネル内の自Botメッセージを全削除してからJSONの内容を再投稿する。`RainbowlGuildConfig`に`role_button_channel_id`を新設し、前回の教訓を踏まえて**コードデプロイ前に**`zero_bot_guild_config`へ値（`1546542373952033001`）を投入済み。
+  性別（男性/女性）・パートナー（あり/なし）ロールは意図的に排他制御にしていない（独立トグル。両方選べてしまう状態を許容する仕様）。
+
+- [ ] **ロール付与ボタンの初回投稿がまだ**
+  デプロイ後、対象チャンネル（`1546542373952033001`）で運営が`/set_role_button`を一度実行するまで、ボタンは投稿されない。旧・リアクションロール方式のメッセージが同チャンネルに残っている場合は、`/set_role_button`実行前に手動で削除しておくこと（`/set_role_button`はBotの自メッセージしか削除しない）。

@@ -41,6 +41,7 @@ class RainbowlGuildConfig:
 
     join_log_channel_id: int
     passed_notice_channel_id: int
+    role_button_channel_id: int
 
     reception_emoji_id: int
     reception_emoji_name: str
@@ -223,6 +224,10 @@ def build_rainbowl_config(
         passed_notice_channel_id=_required_positive_int(
             rainbowl_config,
             "passed_notice_channel_id",
+        ),
+        role_button_channel_id=_required_positive_int(
+            rainbowl_config,
+            "role_button_channel_id",
         ),
         reception_emoji_id=_required_positive_int(
             rainbowl_config,
