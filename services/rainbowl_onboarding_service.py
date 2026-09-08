@@ -653,75 +653,6 @@ async def process_apply_button(
 #  面接用プロフィール検知・承認転記
 # ============================================================
 
-async def process_profile_candidate_message(
-    message: discord.Message,
-    config: RainbowlGuildConfig,
-) -> bool:
-    """
-    on_messageから呼ばれる。
-
-    本人専用チャンネルへの本人による最初の投稿を面接用プロフィールとして
-    扱い、「受付」スタンプを設置する。処理した場合はTrueを返す。
-    """
-    item = await asyncio.to_thread(
-        store.get_item,
-        message.guild.id,
-        message.author.id,
-    )
-
-    applicant_channel_id = item.get("applicant_channel_id")
-
-    if (
-        applicant_channel_id is None
-        or int(applicant_channel_id) != message.channel.id
-    ):
-        print(
-            "[rainbowl] プロフィール候補メッセージを無視:"
-            " チャンネル不一致"
-            f" guild_id={message.guild.id}"
-            f" user_id={message.author.id}"
-            f" message_channel_id={message.channel.id}"
-            f" db_applicant_channel_id={applicant_channel_id}"
-        )
-        return False
-
-    now_iso = _now_iso()
-
-    success = await asyncio.to_thread(
-        store.set_profile_submitted,
-        message.guild.id,
-        message.author.id,
-        message.id,
-        now_iso,
-    )
-
-    if not success:
-        print(
-            "[rainbowl] プロフィール候補メッセージを無視:"
-            " profile_message_id登録済み"
-            f"（status={item.get('status')}）"
-            f" guild_id={message.guild.id}"
-            f" user_id={message.author.id}"
-        )
-        return False
-
-    emoji = discord.PartialEmoji(
-        name=config.reception_emoji_name,
-        id=config.reception_emoji_id,
-    )
-
-    try:
-        await message.add_reaction(emoji)
-    except discord.HTTPException as exc:
-        print(
-            "[rainbowl] 受付スタンプの設置に失敗しました"
-            f" guild_id={message.guild.id}"
-            f" user_id={message.author.id} error={exc}"
-        )
-
-    return True
-
-
 async def process_reception_reaction(
     payload: discord.RawReactionActionEvent,
     bot: discord.Client,
@@ -730,8 +661,15 @@ async def process_reception_reaction(
     """
     on_raw_reaction_addから呼ばれる。
 
-    運営が面接用プロフィールへ「受付」スタンプを追加した場合に、
-    応募者プロフ置き場チャンネルへ転記する。
+    本人専用チャンネルでは、面談前の雑談を挟んでから面接用プロフィールを
+    投稿してもよい想定のため、「最初の投稿」を自動検知はしない。
+    運営が「これが面接用プロフィールだ」と判断したメッセージへ
+    「受付」スタンプを追加した、その操作自体をプロフィール確定の合図として扱う。
+
+    - スタンプを押したメッセージをprofile_message_idとして登録
+      （登録済みなら以降のスタンプは無視。最初にスタンプが押されたメッセージが
+      そのまま確定する）
+    - 応募者プロフ置き場チャンネルへ転記する
     """
     if (
         payload.emoji.id is None
@@ -774,15 +712,34 @@ async def process_reception_reaction(
         applicant_id,
     )
 
-    profile_message_id = item.get("profile_message_id")
+    applicant_channel_id = item.get("applicant_channel_id")
 
     if (
-        profile_message_id is None
-        or int(profile_message_id) != payload.message_id
+        applicant_channel_id is None
+        or int(applicant_channel_id) != channel.id
     ):
+        # スタンプを押した先が、そのメッセージ投稿者の本人専用チャンネルと
+        # 一致しない（運営の自分の発言に誤って押した等）場合は無視する
         return
 
     now_iso = _now_iso()
+
+    profile_registered = await asyncio.to_thread(
+        store.set_profile_submitted,
+        guild.id,
+        applicant_id,
+        message.id,
+        now_iso,
+    )
+
+    if not profile_registered:
+        # 既に別のメッセージがprofile_message_idとして確定済み
+        print(
+            "[rainbowl] 受付スタンプを無視:"
+            " profile_message_id登録済み"
+            f" guild_id={guild.id} user_id={applicant_id}"
+        )
+        return
 
     success = await asyncio.to_thread(
         store.set_scheduling,

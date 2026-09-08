@@ -72,7 +72,7 @@ Cogは薄く保ち、判定・DynamoDB操作は極力Service/Data層に置く（
 
 `passed_notice_channel_id`（チャンネル名「合格通知」）：本人専用チャンネルを即時削除するため、合格の旨はここへ投稿する。規約・ルールカテゴリー側のチャンネル（このドキュメントのスコープ外だが、このフローから直接参照するIDとして追加）。
 
-「受付」リアクションはカスタム絵文字 `<:uketsuke:1535212269472849971>`。付与・検知どちらも`reception_emoji_id`（+ 判定用に`reception_emoji_name`）で行う。
+「受付」リアクションはカスタム絵文字 `<:uketsuke:1535212269472849971>`。運営が付与し、Botは検知のみ行う（`reception_emoji_id`で判定）。
 
 `join_log_channel_id`はチャンネル「入場者詳細」（`📋 審査・記録`カテゴリー）。
 
@@ -195,22 +195,20 @@ Item形式：
      /ng と同様に status = REJECTED・verdict_reason に自動キックである旨を保存・本人専用チャンネルを即時削除する。
      バッチの実行基盤（cron等）自体は本フロー専用ではなく、Bot全体の日次バッチとしてまとめて別途設計する。
 
-4. [on_message｜cogs/rainbowl_interview.py]
-   → メッセージのチャンネルIDが、送信者本人の applicant_channel_id と一致するかを rainbowl_store で確認
-   → 一致し、かつ profile_message_id が未登録の場合のみ「これが面接用プロフィール」として扱う
-     - 「受付」スタンプ（`<:uketsuke:1535212269472849971>`）をリアクション
-     - profile_message_id を保存、status = PROFILE_SUBMITTED
-   → 既に profile_message_id がある場合は通常のやり取りとして無視（リアクションしない）
-
-5. [on_raw_reaction_add｜cogs/rainbowl_interview.py]
-   → 対象メッセージIDが profile_message_id と一致するかを確認
+4. [on_raw_reaction_add｜cogs/rainbowl_interview.py]
+   → Botは「最初の投稿」を自動検知しない（本人専用チャンネルでは雑談を挟んでよい想定のため、on_messageでの検知はしない）
+   → リアクションの絵文字IDが reception_emoji_id と一致するかを確認
    → リアクション実行者が staff_role_id を持つかを確認（本人が押しても無効）
-   → status が PROFILE_SUBMITTED の場合のみ処理（多重承認防止）
-   → review_profiles_channel_id へ「{本人メンション} + プロフィール全文」を転記
-   → status = SCHEDULING
+   → 対象メッセージの投稿者について、applicant_channel_id がそのチャンネルと一致するかを確認
+     （運営が自分自身の発言等、無関係なメッセージへ誤って押した場合はここで弾かれる）
+   → profile_message_id が未登録の場合のみ、そのメッセージを面接用プロフィールとして確定
+     - profile_message_id を保存、status = PROFILE_SUBMITTED（条件付き書き込みで多重確定を防止。既に別のメッセージが確定済みなら以降のスタンプは無視）
+   → status が PROFILE_SUBMITTED の場合のみ、続けて以下を実行（多重承認防止）
+     - review_profiles_channel_id へ「{本人メンション} + プロフィール全文」を転記
+     - status = SCHEDULING
 
-   不備がある場合：運営が本人専用チャンネルで直接やり取り（完全手動、Bot処理なし）。status は PROFILE_SUBMITTED のまま変更しない。
-   本人が投稿を編集し、運営が改めて内容を確認して問題なければ、通常どおり同じ「受付」スタンプを押して承認する
+   不備がある場合：運営はどの投稿にもスタンプを押さず、本人専用チャンネルで直接やり取り（完全手動、Bot処理なし）。status は APPLIED のまま変更しない。
+   本人が投稿を編集（または新たに投稿）し、運営が改めて内容を確認して問題なければ、その投稿へ「受付」スタンプを押して確定する
    （NEEDS_FOLLOWUP ステータスは使わない。ステータス遷移としては何も特別なことをしない）
 
 6. [人間の作業]

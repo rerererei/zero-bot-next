@@ -22,7 +22,6 @@ from services.rainbowl_onboarding_service import (
     build_verdict_embed,
     process_acknowledge_passed_button,
     process_pass_verdict,
-    process_profile_candidate_message,
     process_reception_reaction,
     process_reject_verdict,
     resolve_applicant_from_channel,
@@ -282,43 +281,7 @@ class RainbowlInterview(commands.Cog):
             return None
 
     # ========================================
-    # 面接用プロフィール検知
-    # ========================================
-
-    @commands.Cog.listener()
-    async def on_message(
-        self,
-        message: discord.Message,
-    ) -> None:
-        if message.guild is None:
-            return
-
-        if message.author.bot:
-            return
-
-        config = await self._get_config(
-            message.guild.id
-        )
-
-        if config is None:
-            return
-
-        try:
-            await process_profile_candidate_message(
-                message,
-                config,
-            )
-        except Exception as exc:
-            print(
-                "[rainbowl] プロフィール検知処理に"
-                "失敗しました:"
-                f" guild_id={message.guild.id}"
-                f" user_id={message.author.id}"
-                f" error={exc}"
-            )
-
-    # ========================================
-    # 「受付」スタンプ承認
+    # 「受付」スタンプ承認（プロフィール確定を兼ねる）
     # ========================================
 
     @commands.Cog.listener()
@@ -505,6 +468,8 @@ class RainbowlInterview(commands.Cog):
         description="面談の合格処理を行います（運営専用）",
     )
     @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def rainbowl_ok(
         self,
         interaction: discord.Interaction,
@@ -527,6 +492,8 @@ class RainbowlInterview(commands.Cog):
         description="面談の不合格処理を行います（運営専用）",
     )
     @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
     async def rainbowl_ng(
         self,
         interaction: discord.Interaction,
