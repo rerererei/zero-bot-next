@@ -28,6 +28,7 @@ STATUS_LABELS = {
     "SCHEDULING": "日程調整中",
     "INTERVIEW_DONE": "面談実施済み・判定待ち",
     "PASSED": "合格",
+    "ACKNOWLEDGED": "了承済み",
     "NEWCOMER": "新人",
     "REJECTED": "不合格",
     "WITHDRAWN": "辞退",
@@ -921,13 +922,24 @@ async def process_pass_verdict(
         config,
     )
 
-    passed_notice_channel = guild.get_channel(
-        config.passed_notice_channel_id
+    # 合格通知は本人専用チャンネルへ投稿する（了承済み〜新人になるまで
+    # このチャンネルを削除せずに使い続けるため、共有の合格通知チャンネルは使わない）
+    item = await asyncio.to_thread(
+        store.get_item,
+        guild.id,
+        member.id,
     )
 
-    if passed_notice_channel is not None:
+    applicant_channel_id = item.get("applicant_channel_id")
+    applicant_channel = (
+        guild.get_channel(int(applicant_channel_id))
+        if applicant_channel_id is not None
+        else None
+    )
+
+    if applicant_channel is not None:
         try:
-            await passed_notice_channel.send(
+            await applicant_channel.send(
                 content=member.mention,
                 embed=discord.Embed(
                     description=(
@@ -943,6 +955,12 @@ async def process_pass_verdict(
                 f" guild_id={guild.id} user_id={member.id}"
                 f" error={exc}"
             )
+    else:
+        print(
+            "[rainbowl] 本人専用チャンネルを取得できず"
+            "合格通知を投稿できませんでした"
+            f" guild_id={guild.id} user_id={member.id}"
+        )
 
 
 async def process_acknowledge_passed_button(
@@ -952,12 +970,86 @@ async def process_acknowledge_passed_button(
     """
     合格通知メッセージの「了解しました」ボタン押下時の処理。
 
-    statusがPASSEDの場合のみNEWCOMERへ進め、
-    合格ロールを外して新人ロールを付与する。
+    statusがPASSEDの場合のみACKNOWLEDGEDへ進め、
+    合格ロールを外して了承済みロールを付与する。
+
+    本人専用チャンネルはまだ削除しない（プロフィールチャンネルへの
+    初回投稿を検知するまで、案内用に使い続ける。process_profile_channel_post
+    参照）。
 
     成功した場合はTrue、既に処理済み・対象外の場合はFalseを返す。
     """
     guild = member.guild
+    now_iso = _now_iso()
+
+    transitioned = await asyncio.to_thread(
+        store.set_acknowledged,
+        guild.id,
+        member.id,
+        now_iso,
+    )
+
+    if not transitioned:
+        return False
+
+    passed_role = guild.get_role(config.passed_role_id)
+    acknowledged_role = guild.get_role(
+        config.acknowledged_role_id
+    )
+
+    if (
+        passed_role is not None
+        and passed_role in member.roles
+    ):
+        try:
+            await member.remove_roles(
+                passed_role,
+                reason="rainbowl: 了承済みへ移行",
+            )
+        except discord.HTTPException as exc:
+            print(
+                "[rainbowl] passed_role削除に失敗しました"
+                f" guild_id={guild.id} user_id={member.id}"
+                f" error={exc}"
+            )
+
+    if acknowledged_role is not None:
+        try:
+            await member.add_roles(
+                acknowledged_role,
+                reason="rainbowl: 了承済みへ移行",
+            )
+        except discord.HTTPException as exc:
+            print(
+                "[rainbowl] acknowledged_role付与に"
+                "失敗しました"
+                f" guild_id={guild.id} user_id={member.id}"
+                f" error={exc}"
+            )
+
+    return True
+
+
+async def process_profile_channel_post(
+    message: discord.Message,
+    config: RainbowlGuildConfig,
+) -> bool:
+    """
+    on_messageから呼ばれる。男性/女性プロフィールチャンネルへの投稿を検知する。
+
+    statusがACKNOWLEDGEDの場合のみNEWCOMERへ進め、
+    了承済みロールを外して新人ロールを付与し、本人専用チャンネルを削除する。
+
+    成功した場合はTrue、対象外の場合はFalseを返す。
+    """
+    if message.channel.id not in (
+        config.male_profile_channel_id,
+        config.female_profile_channel_id,
+    ):
+        return False
+
+    guild = message.guild
+    member = message.author
     now_iso = _now_iso()
 
     transitioned = await asyncio.to_thread(
@@ -970,23 +1062,24 @@ async def process_acknowledge_passed_button(
     if not transitioned:
         return False
 
-    passed_role = guild.get_role(config.passed_role_id)
-    newcomer_role = guild.get_role(
-        config.newcomer_role_id
+    acknowledged_role = guild.get_role(
+        config.acknowledged_role_id
     )
+    newcomer_role = guild.get_role(config.newcomer_role_id)
 
     if (
-        passed_role is not None
-        and passed_role in member.roles
+        acknowledged_role is not None
+        and acknowledged_role in member.roles
     ):
         try:
             await member.remove_roles(
-                passed_role,
+                acknowledged_role,
                 reason="rainbowl: 新人へ移行",
             )
         except discord.HTTPException as exc:
             print(
-                "[rainbowl] passed_role削除に失敗しました"
+                "[rainbowl] acknowledged_role削除に"
+                "失敗しました"
                 f" guild_id={guild.id} user_id={member.id}"
                 f" error={exc}"
             )
@@ -1005,13 +1098,13 @@ async def process_acknowledge_passed_button(
                 f" error={exc}"
             )
 
-    return True
-
     await _delete_applicant_channel(
         guild,
         member.id,
-        reason="rainbowl: 面談合格につき即時削除",
+        reason="rainbowl: プロフィール投稿完了につき削除",
     )
+
+    return True
 
 
 async def process_reject_verdict(

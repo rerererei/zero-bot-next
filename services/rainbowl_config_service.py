@@ -22,6 +22,7 @@ class RainbowlGuildConfig:
     entrant_role_id: int
     applicant_role_id: int
     passed_role_id: int
+    acknowledged_role_id: int
     newcomer_role_id: int
     member_role_id: int
     staff_role_id: int
@@ -40,8 +41,9 @@ class RainbowlGuildConfig:
     review_results_channel_id: int
 
     join_log_channel_id: int
-    passed_notice_channel_id: int
     role_button_channel_id: int
+    male_profile_channel_id: int
+    female_profile_channel_id: int
 
     reception_emoji_id: int
     reception_emoji_name: str
@@ -169,6 +171,10 @@ def build_rainbowl_config(
             rainbowl_config,
             "passed_role_id",
         ),
+        acknowledged_role_id=_required_positive_int(
+            rainbowl_config,
+            "acknowledged_role_id",
+        ),
         newcomer_role_id=_required_positive_int(
             rainbowl_config,
             "newcomer_role_id",
@@ -221,13 +227,17 @@ def build_rainbowl_config(
             rainbowl_config,
             "join_log_channel_id",
         ),
-        passed_notice_channel_id=_required_positive_int(
-            rainbowl_config,
-            "passed_notice_channel_id",
-        ),
         role_button_channel_id=_required_positive_int(
             rainbowl_config,
             "role_button_channel_id",
+        ),
+        male_profile_channel_id=_required_positive_int(
+            rainbowl_config,
+            "male_profile_channel_id",
+        ),
+        female_profile_channel_id=_required_positive_int(
+            rainbowl_config,
+            "female_profile_channel_id",
         ),
         reception_emoji_id=_required_positive_int(
             rainbowl_config,

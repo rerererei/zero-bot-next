@@ -51,6 +51,7 @@ class ZeroBot(commands.Bot):
             # rainbowl（入場〜面談合否判定フロー）
             "cogs.rainbowl_onboarding",
             "cogs.rainbowl_interview",
+            "cogs.rainbowl_profile_gate",
 
             # rainbowl（セルフサービスのロール付与ボタン）
             "cogs.rainbowl_role_buttons",

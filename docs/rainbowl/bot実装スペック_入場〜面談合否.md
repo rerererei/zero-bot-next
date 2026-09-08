@@ -16,7 +16,8 @@ services/rainbowl_config_service.py       # guild_config["rainbowl"] を datacla
 services/rainbowl_onboarding_service.py   # 段階開放・チャンネル生成・状態遷移のロジック本体
 data/rainbowl/applicants_store.py         # 応募者ごとの状態を zero_bot_rainbowl_applicants テーブルへ読み書き
 cogs/rainbowl_onboarding.py               # on_member_join／「次へ」ボタン／入会申請ボタン
-cogs/rainbowl_interview.py                # 「受付」リアクション検知／プロフィール転記／/ok /ng コマンド
+cogs/rainbowl_interview.py                # 「受付」リアクション検知／プロフィール転記／/ok /ng コマンド／『了解しました』ボタン
+cogs/rainbowl_profile_gate.py             # 男性/女性プロフィールチャンネルへの初回投稿検知
 json_data/put_rainbowl_config.json        # zero_bot_guild_config への追加投入用（guild_id: 1533518300271607929）
 ```
 
@@ -36,6 +37,8 @@ Cogは薄く保ち、判定・DynamoDB操作は極力Service/Data層に置く（
     "entrant_role_id":            { "S": "1534597519793979512" },
     "applicant_role_id":          { "S": "1534598256787460237" },
     "passed_role_id":             { "S": "1534598317252808774" },
+    "acknowledged_role_id":       { "S": "1546942079299756082" },
+    "newcomer_role_id":           { "S": "1546058079727259658" },
     "member_role_id":             { "S": "1546061905716846592" },
     "staff_role_id":              { "S": "1534598450589732936" },
 
@@ -62,7 +65,9 @@ Cogは薄く保ち、判定・DynamoDB操作は極力Service/Data層に置く（
     "review_notes_channel_id":    { "S": "1534949294442811622" },
     "review_results_channel_id":  { "S": "1534951614429790353" },
     "join_log_channel_id":        { "S": "1534968774434750645" },
-    "passed_notice_channel_id":   { "S": "1534967599614398524" },
+    "role_button_channel_id":     { "S": "1546542373952033001" },
+    "male_profile_channel_id":    { "S": "1533732434087252049" },
+    "female_profile_channel_id":  { "S": "1533732470443475034" },
 
     "reception_emoji_id":         { "S": "1535212269472849971" },
     "reception_emoji_name":       { "S": "uketsuke" }
@@ -70,7 +75,11 @@ Cogは薄く保ち、判定・DynamoDB操作は極力Service/Data層に置く（
 }
 ```
 
-`passed_notice_channel_id`（チャンネル名「合格通知」）：本人専用チャンネルを即時削除するため、合格の旨はここへ投稿する。規約・ルールカテゴリー側のチャンネル（このドキュメントのスコープ外だが、このフローから直接参照するIDとして追加）。
+`acknowledged_role_id`（了承済みロール）：合格通知の『了解しました』ボタン押下時に付与する。`newcomer_role_id`（新人ロール）：男性/女性プロフィールチャンネルへの初回投稿を検知した時点で付与する（了承済みから切り替え）。
+
+`male_profile_channel_id` / `female_profile_channel_id`：本人専用チャンネルを削除するタイミングを判定するために監視するプロフィールチャンネル（既存の`profile.profile_source_channel_ids`と同じチャンネル）。
+
+旧`passed_notice_channel_id`（共有の合格通知チャンネル）は廃止した。合格通知は本人専用チャンネルへ投稿する方式に変更したため。
 
 「受付」リアクションはカスタム絵文字 `<:uketsuke:1535212269472849971>`。運営が付与し、Botは検知のみ行う（`reception_emoji_id`で判定）。
 
@@ -242,8 +251,21 @@ Item形式：
      - 左線色：緑
      - 内容：ユーザー名、ユーザーID、アイコン（`author.icon_url`）、コメント（モーダル入力内容。未入力なら空欄）
    → rainbowl_store の verdict_reason にモーダル入力内容（コメント）を保存
-   → passed_notice_channel_id へ合格の旨を投稿（本人メンション。DMは使わない。本人専用チャンネルは直後に削除するためここには投稿しない）
-   → status = PASSED、本人専用チャンネルを即時削除（不合格側と同じタイミング。合格の通知先を分けたことで、削除前に本人が読めるかを気にする必要がなくなった）
+   → status = PASSED
+   → 本人専用チャンネルへ合格の旨とEmbed（『了解しました』ボタン付き、永続View）を投稿
+     （本人専用チャンネルはこの時点では削除しない。以降のステップ9・10で使い続ける）
+
+9. [『了解しました』ボタン｜cogs/rainbowl_interview.py]
+   → statusがPASSEDの場合のみ処理（多重押下防止）
+   → status = ACKNOWLEDGED
+   → passed_role_id → acknowledged_role_id
+
+10. [on_message｜cogs/rainbowl_profile_gate.py]
+    → メッセージのチャンネルIDが male_profile_channel_id / female_profile_channel_id のいずれかと一致するかを確認
+    → statusがACKNOWLEDGEDの場合のみ処理（多重処理防止）
+    → status = NEWCOMER
+    → acknowledged_role_id → newcomer_role_id
+    → 本人専用チャンネルを削除
 ```
 
 ---
@@ -268,8 +290,8 @@ Item形式：
   - `/ng`：理由入力欄（必須）
 - モーダルは`discord.ui.Modal`（都度生成、`interaction.response.send_modal`）でよい。永続View（3章）とは異なり、スラッシュコマンド実行に対する一回限りの応答なので再起動をまたぐ持続登録は不要
 - 合否記録Embedの左線色：合格＝緑、不合格＝赤
-- 本人への通知：合格の場合のみ`passed_notice_channel_id`（合格通知チャンネル）へ結果を投稿する。不合格は本人への連絡を行わず、無連絡のままキックする（無連絡キックの可能性がある旨は、Botではなく面談時に運営が口頭で説明する運用）
-- 本人専用チャンネルは合否問わず即時削除する（アーカイブは行わない）。合格の旨は本人専用チャンネルではなく`passed_notice_channel_id`（合格通知チャンネル）へ投稿することで、削除前に本人が読めるかを気にせず即時削除できるようにした
+- 本人への通知：合格の場合のみ本人専用チャンネルへ結果とEmbed（『了解しました』ボタン付き）を投稿する。不合格は本人への連絡を行わず、無連絡のままキックする（無連絡キックの可能性がある旨は、Botではなく面談時に運営が口頭で説明する運用）
+- 本人専用チャンネルの削除タイミングは合否で異なる：不合格は即時削除、合格は`/ok`時点では削除せず、`ACKNOWLEDGED`（了解しましたボタン押下）を経て、男性/女性プロフィールチャンネルへの初回投稿を検知した時点（`NEWCOMER`）で削除する
 - `zero_bot_rainbowl_applicants`のレコードは**削除しない**（永続保存）。再入場のたびに前回挑戦のスナップショットを`application_history`へ積み上げ、`join_count`をインクリメントする（2-2章参照）。チャンネルを即時削除してよいのは、この履歴がDB側に残るため
 - 再入場のたびに`join_log_channel_id`（「入場者詳細」チャンネル、ID `1534968774434750645`）へEmbedを投稿する（2-3章参照）
 - Discordの自己紹介文（bio）取得はできれば実現したい（未確定・技術検証が前提）
