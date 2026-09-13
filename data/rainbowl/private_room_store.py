@@ -94,12 +94,16 @@ class PrivateRoomStore:
         human_limit: Optional[int],
         bitrate: int,
         now_iso: str,
+        invited_user_ids: Optional[List[str]] = None,
     ) -> bool:
         """
         所有者ロックとルーム本体を同時に作成する（TransactWriteItems）。
 
         所有者が既にロックを持っている場合、またはchannel_idが既に
         登録済みの場合は失敗しFalseを返す（連打・二重作成対策）。
+
+        invited_user_idsは、個室のように作成と同時に招待済みユーザーを
+        確定させたい場合に渡す（会議では通常空のまま）。
         """
         room_item = {
             "guild_id": str(guild_id),
@@ -111,7 +115,7 @@ class PrivateRoomStore:
             "room_menu_message_id": None,
             "room_name": room_name,
             "status_text": None,
-            "invited_user_ids": [],
+            "invited_user_ids": list(invited_user_ids or []),
             "pending_removal_user_ids": [],
             # 無制限はNoneではなく番兵値0で保存する（REMOVEとの区別のため）
             "human_limit": human_limit if human_limit else 0,

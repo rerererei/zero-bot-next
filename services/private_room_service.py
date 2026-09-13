@@ -6,8 +6,10 @@ Cog（cogs/rainbowl_private_rooms.py）はDiscordイベント・インタラク�
 受け口として薄く保ち、判定・DynamoDB操作・チャンネル操作はこのモジュールに
 集約する（rainbowl_onboarding_serviceと同じ方針）。
 
-このモジュールが対応するのは「プライベート会議」1種別のみ
-（プライベートルーム機能.md 1章）。他の部屋種別（パブリック会議等）は
+このモジュールが対応するのは「プライベート会議」「プライベート個室」の
+2種別のみ（プライベートルーム機能.md 1章＋個室は会議の1対1版として追加）。
+権限モデル・削除・自動修復等の挙動は両者で共通で、違いは作成フロー
+（人数入力か、相手を1人選ぶか）だけ。他の部屋種別（パブリック会議等）を
 将来追加する場合でも、このモジュールを直接は再利用しない前提。
 
 rainbowl専用機能であることのゲートは、既存rainbowl系Cogと同じく
@@ -18,8 +20,12 @@ RainbowlGuildConfig（rainbowl_config_service.py）には追加しない
  docs/rainbowl/今後のTODO.md参照）。
 
 簡略化した仕様（ユーザー合意済み）:
-- 24章「Bot枠と人数上限」: human_limitをそのままDiscordのuser_limitへ反映する
-  だけとし、Bot入退室ごとのuser_limit補正は行わない（レート制限回避）。
+- 24章「Bot枠と人数上限」: human_limit/effective_limitを別々のDB項目として
+  管理する完全版までは実装せず、「Botが接続している間だけ、その分だけ
+  Discordのuser_limitを一時的に+1する」補正のみ入れている
+  （compute_effective_user_limit / adjust_limit_for_bot_presence）。
+  個室（human_limit=2固定）でBotが人間より先に入室すると、そのままでは
+  招待した相手が入室できなくなる事故が起きるため。
 - 33章「権限の自動修復」: services/private_room_permissions.py 参照。
   @everyone・作成者・招待ユーザー・Bot以外の個別メンバー上書きのみ削除対象とし、
   ロール上書きには一切触れない。
@@ -49,6 +55,21 @@ from utils.room_text_validation import (
 JST = timezone(timedelta(hours=9))
 
 ROOM_TYPE_PRIVATE_MEETING = "PRIVATE_MEETING"
+ROOM_TYPE_PRIVATE_SOLO = "PRIVATE_SOLO"
+
+ROOM_TYPE_CHOICES: List[Tuple[str, str]] = [
+    ("プライベート会議", ROOM_TYPE_PRIVATE_MEETING),
+    ("プライベート個室", ROOM_TYPE_PRIVATE_SOLO),
+]
+
+ROOM_TYPE_DISPLAY_NAMES = {
+    ROOM_TYPE_PRIVATE_MEETING: "プライベート会議",
+    ROOM_TYPE_PRIVATE_SOLO: "プライベート個室",
+}
+
+# プライベート個室は「作成者+相手1人」固定。人数変更メニューからは
+# あとで自由に変更できる(会議と同じ仕様に合わせるため)。
+SOLO_ROOM_HUMAN_LIMIT = 2
 
 BITRATE_CHOICES: List[Tuple[str, int]] = [
     ("デフォルト(64kbps)", 64000),
@@ -124,6 +145,23 @@ def human_member_count(channel: discord.VoiceChannel) -> int:
     return len([m for m in channel.members if not m.bot])
 
 
+def compute_effective_user_limit(
+    channel: discord.VoiceChannel, human_limit: int
+) -> int:
+    """
+    人間用の人数上限(0=無制限)に、現在接続中のBotの数だけ上乗せした
+    実際にDiscordへ設定すべきuser_limitを返す(24章の簡略版)。
+
+    Botが人数枠を1つ食うことで、あとから来る人間が入室できなくなる
+    事故を防ぐための一時的な補正。無制限設定の場合は補正しない。
+    """
+    if human_limit == 0:
+        return 0
+
+    bot_count = len([m for m in channel.members if m.bot])
+    return min(human_limit + bot_count, 99)
+
+
 # =============================
 #    rainbowl専用ゲート・設定
 # =============================
@@ -188,6 +226,7 @@ async def get_menus(guild_id: int) -> List[Dict[str, Any]]:
 
 async def add_menu(
     guild_id: int,
+    room_type: str,
     category_id: int,
     menu_channel_id: int,
     message_id: int,
@@ -204,14 +243,14 @@ async def add_menu(
 
         for menu in menus:
             if (
-                menu.get("room_type") == ROOM_TYPE_PRIVATE_MEETING
+                menu.get("room_type") == room_type
                 and str(menu.get("category_id")) == str(category_id)
             ):
                 return False
 
         menus.append(
             {
-                "room_type": ROOM_TYPE_PRIVATE_MEETING,
+                "room_type": room_type,
                 "category_id": str(category_id),
                 "menu_channel_id": str(menu_channel_id),
                 "message_id": str(message_id),
@@ -224,7 +263,9 @@ async def add_menu(
     return await asyncio.to_thread(_apply)
 
 
-async def remove_menu(guild_id: int, category_id: int) -> bool:
+async def remove_menu(
+    guild_id: int, room_type: str, category_id: int
+) -> bool:
     def _apply() -> bool:
         settings = get_private_room_settings(guild_id)
         menus = settings.get("menus")
@@ -233,7 +274,10 @@ async def remove_menu(guild_id: int, category_id: int) -> bool:
         new_menus = [
             menu
             for menu in menus
-            if str(menu.get("category_id")) != str(category_id)
+            if not (
+                menu.get("room_type") == room_type
+                and str(menu.get("category_id")) == str(category_id)
+            )
         ]
         if len(new_menus) == len(menus):
             return False
@@ -471,9 +515,15 @@ async def create_room(
     room_name_raw: Optional[str],
     human_limit: Optional[int],
     requested_bitrate: int,
+    room_type: str = ROOM_TYPE_PRIVATE_MEETING,
+    initial_invited_ids: Optional[List[int]] = None,
 ) -> Tuple[discord.VoiceChannel, bool, int]:
     """
-    プライベート会議ルームを作成する。
+    プライベートルーム（会議／個室）を作成する。
+
+    initial_invited_idsを渡すと、作成と同時にそのユーザーを招待済みとして
+    登録する（個室で相手を選んでもらう用途）。無効なユーザー（Bot・
+    作成者自身・サーバー未所属）は無条件で除外する。
 
     戻り値: (作成したVC, ビットレート補正が発生したか, 実際のビットレート)
     失敗時はPrivateRoomErrorを投げる。
@@ -523,11 +573,21 @@ async def create_room(
             requested_bitrate, guild
         )
 
+        initial_invitees: List[discord.Member] = []
+        for raw_uid in initial_invited_ids or []:
+            resolved = guild.get_member(raw_uid)
+            if resolved is None or resolved.bot or resolved.id == member.id:
+                continue
+            if resolved.id not in {m.id for m in initial_invitees}:
+                initial_invitees.append(resolved)
+
         overwrites = {
             guild.default_role: EVERYONE_OVERWRITE,
             guild.me: BOT_OVERWRITE,
             member: MEMBER_OVERWRITE,
         }
+        for invitee in initial_invitees:
+            overwrites[invitee] = MEMBER_OVERWRITE
 
         channel: Optional[discord.VoiceChannel] = None
         db_created = False
@@ -547,12 +607,13 @@ async def create_room(
                 guild.id,
                 member.id,
                 channel.id,
-                ROOM_TYPE_PRIVATE_MEETING,
+                room_type,
                 category.id,
                 room_name,
                 human_limit,
                 actual_bitrate,
                 now,
+                [str(invitee.id) for invitee in initial_invitees],
             )
 
             if not db_created:
@@ -569,6 +630,14 @@ async def create_room(
                 embed=build_room_menu_embed(member),
                 view=RoomMenuView(),
             )
+
+            if initial_invitees:
+                mentions = " ".join(u.mention for u in initial_invitees)
+                await channel.send(
+                    f"{mentions}\n\n"
+                    "🔒 このプライベートルームに招待されました。\n"
+                    "VCへの参加とルームメニューの操作が可能です。"
+                )
 
             await asyncio.to_thread(
                 store.update_room_menu_message_id,
@@ -628,12 +697,18 @@ async def create_room(
             guild,
             "🔒 ルーム作成",
             "プライベートルームが作成されました。",
+            種別=ROOM_TYPE_DISPLAY_NAMES.get(room_type, room_type),
             作成者=f"{member} ({member.id})",
             チャンネル=channel.mention,
             部屋名=room_name,
             人数上限="無制限" if human_limit is None else human_limit,
             ビットレート=f"{actual_bitrate}bps"
             + ("（自動補正）" if corrected else ""),
+            招待済み=(
+                ", ".join(f"{u} ({u.id})" for u in initial_invitees)
+                if initial_invitees
+                else "なし"
+            ),
         )
 
         return channel, corrected, actual_bitrate
@@ -810,6 +885,42 @@ async def on_channel_became_occupied(
     )
 
 
+async def adjust_limit_for_bot_presence(
+    guild: discord.Guild, channel: discord.VoiceChannel
+) -> None:
+    """
+    Botの入退室で人間の人数枠が奪われないよう、人数上限を一時的に
+    補正する（24章）。人間用のhuman_limit自体は変更しない。
+    """
+    room = await asyncio.to_thread(store.get_room, guild.id, channel.id)
+    if not room:
+        return
+
+    human_limit = room.get("human_limit") or 0
+    if human_limit == 0:
+        return  # 無制限は補正不要
+
+    effective_limit = compute_effective_user_limit(channel, human_limit)
+    if channel.user_limit == effective_limit:
+        return
+
+    try:
+        await channel.edit(
+            user_limit=effective_limit,
+            reason="Bot枠による人数上限の一時補正",
+        )
+    except discord.HTTPException:
+        return
+
+    await log_event(
+        guild,
+        "🤖 Bot枠による人数補正",
+        "Botの入退室に合わせて人数上限を一時的に補正しました。",
+        人間用人数上限="無制限" if human_limit == 0 else human_limit,
+        Discord実上限=effective_limit,
+    )
+
+
 # =============================
 #    部屋名・ステータス・人数・ビットレート変更
 # =============================
@@ -924,7 +1035,9 @@ async def change_limit(
 
     async with get_room_lock(channel.id):
         await channel.edit(
-            user_limit=new_limit or 0,
+            user_limit=compute_effective_user_limit(
+                channel, new_limit or 0
+            ),
             reason=f"{member} による人数変更",
         )
         await asyncio.to_thread(
@@ -1054,7 +1167,11 @@ async def invite_users(
             guild.me,
             reason=f"{member} によるユーザー招待",
         )
-        await channel.edit(user_limit=new_limit or 0)
+        await channel.edit(
+            user_limit=compute_effective_user_limit(
+                channel, new_limit or 0
+            )
+        )
 
         mentions = " ".join(u.mention for u in newly_invited)
         await channel.send(

@@ -6,7 +6,8 @@ Discordイベント・インタラクションの受け口はこのファイル�
 判定・DynamoDB操作・チャンネル操作は
 services/private_room_service.py に集約する。
 
-対応する部屋種別は「プライベート会議」のみ（プライベートルーム機能.md 1章）。
+対応する部屋種別は「プライベート会議」「プライベート個室」の2種別
+（プライベートルーム機能.md 1章＋個室は会議の1対1版）。
 """
 
 import asyncio
@@ -141,14 +142,114 @@ class RoomCreateModal(_BaseModal, title="プライベートルーム作成"):
 
 
 # =========================================================
+#   作成モーダル（個室） → 相手選択 → 作成
+# =========================================================
+class SoloRoomCreateModal(_BaseModal, title="プライベート個室作成"):
+    room_name = discord.ui.TextInput(
+        label="部屋名（空欄で「(表示名)'s ROOM」）",
+        required=False,
+        max_length=80,
+    )
+
+    def __init__(self, category_id: int):
+        super().__init__()
+        self.category_id = category_id
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        view = SoloPartnerSelectView(
+            self.category_id, self.room_name.value
+        )
+        await interaction.response.send_message(
+            "一緒に入る相手を選択してください。",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class SoloPartnerSelect(discord.ui.UserSelect):
+    def __init__(self, category_id: int, room_name_raw: str):
+        super().__init__(
+            placeholder="相手を選択してください",
+            min_values=1,
+            max_values=1,
+        )
+        self.category_id = category_id
+        self.room_name_raw = room_name_raw
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        selected = self.values[0]
+        partner = interaction.guild.get_member(selected.id)
+
+        if partner is None:
+            await interaction.response.send_message(
+                "選択したユーザーが見つかりませんでした。"
+                "サーバーに参加しているユーザーを選んでください。",
+                ephemeral=True,
+            )
+            return
+        if partner.bot:
+            await interaction.response.send_message(
+                "Botユーザーは選択できません。", ephemeral=True
+            )
+            return
+        if partner.id == interaction.user.id:
+            await interaction.response.send_message(
+                "自分自身は選択できません。", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        try:
+            channel, corrected, actual_bitrate = (
+                await private_room_service.create_room(
+                    interaction.guild,
+                    interaction.user,
+                    self.category_id,
+                    self.room_name_raw,
+                    private_room_service.SOLO_ROOM_HUMAN_LIMIT,
+                    private_room_service.DEFAULT_BITRATE_BPS,
+                    room_type=private_room_service.ROOM_TYPE_PRIVATE_SOLO,
+                    initial_invited_ids=[partner.id],
+                )
+            )
+        except PrivateRoomError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
+
+        message = f"ルームを作成しました → {channel.mention}"
+        if corrected:
+            message += (
+                f"\nデフォルトのビットレートは現在のサーバーでは"
+                f"設定できません。設定可能な最大値である"
+                f"{actual_bitrate}bpsに変更しました。"
+            )
+        await interaction.followup.send(message, ephemeral=True)
+
+
+class SoloPartnerSelectView(_BaseView):
+    def __init__(self, category_id: int, room_name_raw: str):
+        super().__init__(timeout=120)
+        self.add_item(SoloPartnerSelect(category_id, room_name_raw))
+
+
+# =========================================================
 #   作成メニュー・削除ボタン（永続View）
 # =========================================================
+CREATE_BUTTON_LABELS = {
+    private_room_service.ROOM_TYPE_PRIVATE_MEETING: "🔒 プライベート会議を作成",
+    private_room_service.ROOM_TYPE_PRIVATE_SOLO: "🔒 プライベート個室を作成",
+}
+
+
 class CreateRoomButton(discord.ui.Button):
-    def __init__(self, category_id: int):
+    def __init__(self, room_type: str, category_id: int):
         super().__init__(
-            label="🔒 プライベート会議を作成",
+            label=CREATE_BUTTON_LABELS.get(
+                room_type, "🔒 プライベートルームを作成"
+            ),
             style=discord.ButtonStyle.primary,
-            custom_id=f"{CREATE_BUTTON_PREFIX}{category_id}",
+            custom_id=f"{CREATE_BUTTON_PREFIX}{room_type}:{category_id}",
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -159,18 +260,25 @@ class CreateRoomButton(discord.ui.Button):
             )
             return
 
-        category_id = int(
-            self.custom_id[len(CREATE_BUTTON_PREFIX):]
-        )
-        await interaction.response.send_modal(
-            RoomCreateModal(category_id)
-        )
+        room_type, category_id_text = self.custom_id[
+            len(CREATE_BUTTON_PREFIX):
+        ].split(":", 1)
+        category_id = int(category_id_text)
+
+        if room_type == private_room_service.ROOM_TYPE_PRIVATE_SOLO:
+            await interaction.response.send_modal(
+                SoloRoomCreateModal(category_id)
+            )
+        else:
+            await interaction.response.send_modal(
+                RoomCreateModal(category_id)
+            )
 
 
 class CreateRoomButtonView(_BaseView):
-    def __init__(self, category_id: int):
+    def __init__(self, room_type: str, category_id: int):
         super().__init__(timeout=None)
-        self.add_item(CreateRoomButton(category_id))
+        self.add_item(CreateRoomButton(room_type, category_id))
 
 
 class DeleteOwnRoomButton(discord.ui.Button):
@@ -786,7 +894,10 @@ class RainbowlPrivateRooms(commands.Cog):
             for menu in menus:
                 try:
                     self.bot.add_view(
-                        CreateRoomButtonView(int(menu["category_id"]))
+                        CreateRoomButtonView(
+                            menu["room_type"],
+                            int(menu["category_id"]),
+                        )
                     )
                 except Exception as exc:
                     print(
@@ -814,6 +925,10 @@ class RainbowlPrivateRooms(commands.Cog):
                 await self._handle_leave(
                     before.channel.guild, before.channel, member
                 )
+                if member.bot:
+                    await private_room_service.adjust_limit_for_bot_presence(
+                        before.channel.guild, before.channel
+                    )
 
         if after.channel is not None and isinstance(
             after.channel, discord.VoiceChannel
@@ -822,6 +937,10 @@ class RainbowlPrivateRooms(commands.Cog):
                 await self._handle_join(
                     after.channel.guild, after.channel
                 )
+                if member.bot:
+                    await private_room_service.adjust_limit_for_bot_presence(
+                        after.channel.guild, after.channel
+                    )
 
     async def _handle_leave(
         self,
@@ -1066,9 +1185,8 @@ class RainbowlPrivateRooms(commands.Cog):
     )
     @app_commands.choices(
         room_type=[
-            app_commands.Choice(
-                name="プライベート会議", value="PRIVATE_MEETING"
-            )
+            app_commands.Choice(name=label, value=value)
+            for label, value in private_room_service.ROOM_TYPE_CHOICES
         ]
     )
     async def create_vc_menu(
@@ -1085,11 +1203,12 @@ class RainbowlPrivateRooms(commands.Cog):
             interaction.guild_id
         )
         if any(
-            str(menu.get("category_id")) == str(category.id)
+            menu.get("room_type") == room_type.value
+            and str(menu.get("category_id")) == str(category.id)
             for menu in existing_menus
         ):
             await interaction.followup.send(
-                "このカテゴリには既にプライベート会議の"
+                f"このカテゴリには既に{room_type.name}の"
                 "作成メニューが設置されています。",
                 ephemeral=True,
             )
@@ -1105,11 +1224,12 @@ class RainbowlPrivateRooms(commands.Cog):
             return
 
         message = await interaction.channel.send(
-            view=CreateRoomButtonView(category.id),
+            view=CreateRoomButtonView(room_type.value, category.id),
         )
 
         added = await private_room_service.add_menu(
             interaction.guild_id,
+            room_type.value,
             category.id,
             interaction.channel_id,
             message.id,
@@ -1167,8 +1287,11 @@ class RainbowlPrivateRooms(commands.Cog):
                 if menu.get("category_missing")
                 else ""
             )
+            room_type_label = private_room_service.ROOM_TYPE_DISPLAY_NAMES.get(
+                menu.get("room_type"), menu.get("room_type")
+            )
             lines.append(
-                "・プライベート会議 / "
+                f"・{room_type_label} / "
                 f"{category.mention if category else menu['category_id']}"
                 f" / {channel.mention if channel else '?'}"
                 f"{missing_note}"
@@ -1188,10 +1311,19 @@ class RainbowlPrivateRooms(commands.Cog):
     @app_commands.guild_only()
     @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.describe(category="対象の作成先カテゴリ")
+    @app_commands.describe(
+        room_type="部屋の種別", category="対象の作成先カテゴリ"
+    )
+    @app_commands.choices(
+        room_type=[
+            app_commands.Choice(name=label, value=value)
+            for label, value in private_room_service.ROOM_TYPE_CHOICES
+        ]
+    )
     async def delete_vc_menu(
         self,
         interaction: discord.Interaction,
+        room_type: app_commands.Choice[str],
         category: discord.CategoryChannel,
     ) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -1205,7 +1337,8 @@ class RainbowlPrivateRooms(commands.Cog):
             (
                 menu
                 for menu in menus
-                if str(menu.get("category_id")) == str(category.id)
+                if menu.get("room_type") == room_type.value
+                and str(menu.get("category_id")) == str(category.id)
             ),
             None,
         )
@@ -1217,7 +1350,7 @@ class RainbowlPrivateRooms(commands.Cog):
             return
 
         await private_room_service.remove_menu(
-            interaction.guild_id, category.id
+            interaction.guild_id, room_type.value, category.id
         )
 
         channel = interaction.guild.get_channel(
