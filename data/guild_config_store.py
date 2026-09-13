@@ -2,6 +2,10 @@ import boto3
 from decimal import Decimal
 
 def _to_decimal(v):
+    # bool は int のサブクラスなので、先に判定して素通りさせる
+    # （Decimal(str(True)) は InvalidOperation で例外になる）
+    if isinstance(v, bool):
+        return v
     if isinstance(v, float) or isinstance(v, int):
         return Decimal(str(v))
     if isinstance(v, dict):

@@ -10,6 +10,7 @@ services/private_room_service.py に集約する。
 """
 
 import asyncio
+import traceback
 from typing import Optional
 
 import discord
@@ -23,6 +24,54 @@ from utils.interaction_cooldown import is_on_cooldown
 
 CREATE_BUTTON_PREFIX = "private_room_create:"
 DELETE_BUTTON_CUSTOM_ID = "private_room_delete_own"
+
+GENERIC_ERROR_MESSAGE = (
+    "予期しないエラーが発生しました。運営へお問い合わせください。"
+)
+
+
+async def _send_generic_error(interaction: discord.Interaction) -> None:
+    """
+    想定外の例外発生時、defer済みインタラクションを「考え中」のまま
+    放置しない（Discordのwebhookトークンが切れるまで固まり続けるため）。
+    """
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(
+                GENERIC_ERROR_MESSAGE, ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                GENERIC_ERROR_MESSAGE, ephemeral=True
+            )
+    except discord.HTTPException:
+        pass
+
+
+class _BaseView(discord.ui.View):
+    """未捕捉の例外でインタラクションを「考え中」のまま固まらせない基底View。"""
+
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: Exception,
+        item: discord.ui.Item,
+    ) -> None:
+        print(f"[private_room] View error (item={item}): {error!r}")
+        traceback.print_exception(type(error), error, error.__traceback__)
+        await _send_generic_error(interaction)
+
+
+class _BaseModal(discord.ui.Modal):
+    """未捕捉の例外でインタラクションを「考え中」のまま固まらせない基底Modal。"""
+
+    async def on_error(
+        self, interaction: discord.Interaction, error: Exception
+    ) -> None:
+        print(f"[private_room] Modal error: {error!r}")
+        traceback.print_exception(type(error), error, error.__traceback__)
+        await _send_generic_error(interaction)
+
 
 GENERAL_COOLDOWN_KEY = "vc_room_menu_op"
 INVITE_COOLDOWN_KEY = "vc_room_invite_op"
@@ -38,7 +87,7 @@ def _check_cooldown_message(
 # =========================================================
 #   作成モーダル → ビットレート選択 → 作成
 # =========================================================
-class RoomCreateModal(discord.ui.Modal, title="プライベートルーム作成"):
+class RoomCreateModal(_BaseModal, title="プライベートルーム作成"):
     room_name = discord.ui.TextInput(
         label="部屋名（空欄で「〇〇の部屋」）",
         required=False,
@@ -122,7 +171,7 @@ class BitrateSelect(discord.ui.Select):
             pass
 
 
-class BitrateSelectView(discord.ui.View):
+class BitrateSelectView(_BaseView):
     def __init__(
         self,
         category_id: int,
@@ -163,7 +212,7 @@ class CreateRoomButton(discord.ui.Button):
         )
 
 
-class CreateRoomButtonView(discord.ui.View):
+class CreateRoomButtonView(_BaseView):
     def __init__(self, category_id: int):
         super().__init__(timeout=None)
         self.add_item(CreateRoomButton(category_id))
@@ -191,7 +240,7 @@ class DeleteOwnRoomButton(discord.ui.Button):
         )
 
 
-class DeleteOwnRoomButtonView(discord.ui.View):
+class DeleteOwnRoomButtonView(_BaseView):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(DeleteOwnRoomButton())
@@ -200,7 +249,7 @@ class DeleteOwnRoomButtonView(discord.ui.View):
 # =========================================================
 #   ルームメニュー（VCインチャに投稿する永続View）
 # =========================================================
-class RenameModal(discord.ui.Modal, title="部屋名変更"):
+class RenameModal(_BaseModal, title="部屋名変更"):
     new_name = discord.ui.TextInput(label="新しい部屋名", max_length=80)
 
     def __init__(self, channel_id: int):
@@ -225,7 +274,7 @@ class RenameModal(discord.ui.Modal, title="部屋名変更"):
         )
 
 
-class StatusModal(discord.ui.Modal, title="ステータス変更"):
+class StatusModal(_BaseModal, title="ステータス変更"):
     status_text = discord.ui.TextInput(
         label="ステータス（空欄で解除）",
         required=False,
@@ -258,7 +307,7 @@ class StatusModal(discord.ui.Modal, title="ステータス変更"):
         await interaction.followup.send(message, ephemeral=True)
 
 
-class LimitModal(discord.ui.Modal, title="人数変更"):
+class LimitModal(_BaseModal, title="人数変更"):
     new_limit = discord.ui.TextInput(
         label="人数（空欄で無制限・3〜99人）",
         required=False,
@@ -326,7 +375,7 @@ class ChangeBitrateSelect(discord.ui.Select):
         await interaction.followup.send(message, ephemeral=True)
 
 
-class ChangeBitrateSelectView(discord.ui.View):
+class ChangeBitrateSelectView(_BaseView):
     def __init__(self, channel_id: int):
         super().__init__(timeout=120)
         self.add_item(ChangeBitrateSelect(channel_id))
@@ -361,7 +410,7 @@ class InviteUserSelect(discord.ui.UserSelect):
         )
 
 
-class InviteUserSelectView(discord.ui.View):
+class InviteUserSelectView(_BaseView):
     def __init__(self, channel_id: int):
         super().__init__(timeout=120)
         self.add_item(InviteUserSelect(channel_id))
@@ -405,13 +454,13 @@ class UninviteUserSelect(discord.ui.UserSelect):
         )
 
 
-class UninviteUserSelectView(discord.ui.View):
+class UninviteUserSelectView(_BaseView):
     def __init__(self, channel_id: int):
         super().__init__(timeout=120)
         self.add_item(UninviteUserSelect(channel_id))
 
 
-class InvitedListView(discord.ui.View):
+class InvitedListView(_BaseView):
     def __init__(
         self,
         channel_id: int,
@@ -472,7 +521,7 @@ class InvitedListView(discord.ui.View):
         await interaction.edit_original_response(embed=embed, view=self)
 
 
-class RoomMenuView(discord.ui.View):
+class RoomMenuView(_BaseView):
     """
     プライベート会議のVCインチャに投稿する永続View。
 
@@ -1356,6 +1405,25 @@ class RainbowlPrivateRooms(commands.Cog):
             f"現在の状態: {'🟢 稼働中' if enabled else '🔴 停止中'}",
             ephemeral=True,
         )
+
+    async def cog_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ) -> None:
+        """
+        管理者コマンド内の未捕捉例外で「考え中」のまま固まらせない。
+        defer済みの場合はfollowup、未応答ならresponseでエラーを返す。
+        """
+        original = getattr(error, "original", error)
+        print(
+            f"[private_room] スラッシュコマンドエラー"
+            f" command={interaction.command}: {original!r}"
+        )
+        traceback.print_exception(
+            type(original), original, original.__traceback__
+        )
+        await _send_generic_error(interaction)
 
 
 async def setup(bot: commands.Bot) -> None:
