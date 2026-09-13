@@ -208,6 +208,7 @@ class RenameModal(discord.ui.Modal, title="部屋名変更"):
         self.channel_id = channel_id
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         channel = interaction.guild.get_channel(self.channel_id)
         try:
             new_name = await private_room_service.rename_room(
@@ -217,11 +218,9 @@ class RenameModal(discord.ui.Modal, title="部屋名変更"):
                 self.new_name.value,
             )
         except PrivateRoomError as exc:
-            await interaction.response.send_message(
-                str(exc), ephemeral=True
-            )
+            await interaction.followup.send(str(exc), ephemeral=True)
             return
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"部屋名を「{new_name}」に変更しました。", ephemeral=True
         )
 
@@ -238,6 +237,7 @@ class StatusModal(discord.ui.Modal, title="ステータス変更"):
         self.channel_id = channel_id
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         channel = interaction.guild.get_channel(self.channel_id)
         try:
             result = await private_room_service.set_status(
@@ -247,9 +247,7 @@ class StatusModal(discord.ui.Modal, title="ステータス変更"):
                 self.status_text.value,
             )
         except PrivateRoomError as exc:
-            await interaction.response.send_message(
-                str(exc), ephemeral=True
-            )
+            await interaction.followup.send(str(exc), ephemeral=True)
             return
 
         message = (
@@ -257,9 +255,7 @@ class StatusModal(discord.ui.Modal, title="ステータス変更"):
             if result is None
             else f"ステータスを「{result}」に変更しました。"
         )
-        await interaction.response.send_message(
-            message, ephemeral=True
-        )
+        await interaction.followup.send(message, ephemeral=True)
 
 
 class LimitModal(discord.ui.Modal, title="人数変更"):
@@ -274,6 +270,7 @@ class LimitModal(discord.ui.Modal, title="人数変更"):
         self.channel_id = channel_id
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         channel = interaction.guild.get_channel(self.channel_id)
         try:
             new_limit = await private_room_service.change_limit(
@@ -283,13 +280,11 @@ class LimitModal(discord.ui.Modal, title="人数変更"):
                 self.new_limit.value,
             )
         except PrivateRoomError as exc:
-            await interaction.response.send_message(
-                str(exc), ephemeral=True
-            )
+            await interaction.followup.send(str(exc), ephemeral=True)
             return
 
         label = "無制限" if new_limit is None else f"{new_limit}人"
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"人数上限を{label}に変更しました。", ephemeral=True
         )
 
@@ -454,12 +449,16 @@ class InvitedListView(discord.ui.View):
         await self._refresh(interaction)
 
     async def _refresh(self, interaction: discord.Interaction) -> None:
+        # ページ送りのたびにDBへ問い合わせるため、先にdeferして
+        # Discordの3秒応答期限を確実に回避してから更新する。
+        await interaction.response.defer()
+
         try:
             room = await private_room_service.get_room_for_channel(
                 self.guild_id, self.channel_id
             )
         except PrivateRoomError as exc:
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content=str(exc), embed=None, view=None
             )
             return
@@ -470,7 +469,7 @@ class InvitedListView(discord.ui.View):
             )
         )
         self._sync_buttons()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
 
 class RoomMenuView(discord.ui.View):
@@ -685,20 +684,20 @@ class RoomMenuView(discord.ui.View):
             )
             return
 
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
         try:
             room = await private_room_service.get_room_for_channel(
                 interaction.guild.id, interaction.channel.id
             )
         except PrivateRoomError as exc:
-            await interaction.response.send_message(
-                str(exc), ephemeral=True
-            )
+            await interaction.followup.send(str(exc), ephemeral=True)
             return
 
         if not private_room_service.is_operator(
             interaction.user, room
         ):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "このルームの作成者・招待ユーザー・管理者のみ確認できます。",
                 ephemeral=True,
             )
@@ -714,7 +713,7 @@ class RoomMenuView(discord.ui.View):
             if max_page > 1
             else None
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=embed, view=view, ephemeral=True
         )
 
@@ -739,8 +738,16 @@ class RainbowlPrivateRooms(commands.Cog):
     async def _require_rainbowl(
         self, interaction: discord.Interaction
     ) -> bool:
+        """
+        呼び出し側は必ず先に interaction.response.defer() していること。
+
+        DynamoDBへの問い合わせ（is_rainbowl_guild）は、Botのコールド
+        スタート直後などboto3の認証情報解決に時間がかかることがあり、
+        deferより前に呼ぶとDiscordの3秒応答期限に間に合わず
+        「アプリケーションが応答しませんでした」になる。
+        """
         if not await self._is_rainbowl_guild(interaction.guild_id):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "このサーバーではこの機能は有効になっていません。",
                 ephemeral=True,
             )
@@ -1031,13 +1038,14 @@ class RainbowlPrivateRooms(commands.Cog):
         interaction: discord.Interaction,
         channel: discord.TextChannel,
     ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         if not await self._require_rainbowl(interaction):
             return
 
         await private_room_service.set_log_channel(
             interaction.guild_id, channel.id
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"操作ログの投稿先を {channel.mention} に設定しました。",
             ephemeral=True,
         )
@@ -1065,10 +1073,9 @@ class RainbowlPrivateRooms(commands.Cog):
         room_type: app_commands.Choice[str],
         category: discord.CategoryChannel,
     ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         if not await self._require_rainbowl(interaction):
             return
-
-        await interaction.response.defer(ephemeral=True, thinking=True)
 
         existing_menus = await private_room_service.get_menus(
             interaction.guild_id
@@ -1133,6 +1140,7 @@ class RainbowlPrivateRooms(commands.Cog):
     async def list_vc_menus(
         self, interaction: discord.Interaction
     ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         if not await self._require_rainbowl(interaction):
             return
 
@@ -1140,7 +1148,7 @@ class RainbowlPrivateRooms(commands.Cog):
             interaction.guild_id
         )
         if not menus:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "作成メニューはまだ設置されていません。",
                 ephemeral=True,
             )
@@ -1166,7 +1174,7 @@ class RainbowlPrivateRooms(commands.Cog):
                 f"{missing_note}"
             )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "\n".join(lines), ephemeral=True
         )
 
@@ -1186,6 +1194,7 @@ class RainbowlPrivateRooms(commands.Cog):
         interaction: discord.Interaction,
         category: discord.CategoryChannel,
     ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         if not await self._require_rainbowl(interaction):
             return
 
@@ -1201,7 +1210,7 @@ class RainbowlPrivateRooms(commands.Cog):
             None,
         )
         if target is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "該当する作成メニューが見つかりませんでした。",
                 ephemeral=True,
             )
@@ -1223,7 +1232,7 @@ class RainbowlPrivateRooms(commands.Cog):
             except discord.HTTPException:
                 pass
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "作成メニューを削除しました（既存のルームは削除されません）。",
             ephemeral=True,
         )
@@ -1241,6 +1250,7 @@ class RainbowlPrivateRooms(commands.Cog):
         interaction: discord.Interaction,
         channel: discord.VoiceChannel,
     ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         if not await self._require_rainbowl(interaction):
             return
 
@@ -1250,7 +1260,7 @@ class RainbowlPrivateRooms(commands.Cog):
             channel.id,
         )
         if room is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "このVCはZeroBot管理下のプライベートルームではありません。",
                 ephemeral=True,
             )
@@ -1280,7 +1290,7 @@ class RainbowlPrivateRooms(commands.Cog):
             private_room_service.now_iso(),
         )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"ルームメニューを再投稿しました → {message.jump_url}",
             ephemeral=True,
         )
@@ -1295,12 +1305,13 @@ class RainbowlPrivateRooms(commands.Cog):
     async def vc_system_on(
         self, interaction: discord.Interaction
     ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         if not await self._require_rainbowl(interaction):
             return
         await private_room_service.set_system_enabled(
             interaction.guild_id, True
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "プライベートルーム機能を再開しました。", ephemeral=True
         )
 
@@ -1314,12 +1325,13 @@ class RainbowlPrivateRooms(commands.Cog):
     async def vc_system_off(
         self, interaction: discord.Interaction
     ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         if not await self._require_rainbowl(interaction):
             return
         await private_room_service.set_system_enabled(
             interaction.guild_id, False
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "プライベートルーム機能を停止しました。", ephemeral=True
         )
 
@@ -1333,13 +1345,14 @@ class RainbowlPrivateRooms(commands.Cog):
     async def vc_system_status(
         self, interaction: discord.Interaction
     ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
         if not await self._require_rainbowl(interaction):
             return
         enabled = await asyncio.to_thread(
             private_room_service.is_system_enabled,
             interaction.guild_id,
         )
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"現在の状態: {'🟢 稼働中' if enabled else '🔴 停止中'}",
             ephemeral=True,
         )
