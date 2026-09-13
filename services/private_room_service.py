@@ -58,6 +58,10 @@ BITRATE_CHOICES: List[Tuple[str, int]] = [
     ("384kbps", 384000),
 ]
 
+# 作成時はビットレート選択を挟まず、この値で即作成する。
+# 作成後の変更はルームメニューの「ビットレート変更」から引き続き可能。
+DEFAULT_BITRATE_BPS = BITRATE_CHOICES[0][1]
+
 EMPTY_AUTO_DELETE_SECONDS = 60
 
 DELETE_RECREATE_COOLDOWN_SECONDS = 30.0

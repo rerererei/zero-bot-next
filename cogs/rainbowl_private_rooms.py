@@ -11,7 +11,6 @@ services/private_room_service.py に集約する。
 
 import asyncio
 import traceback
-from typing import Optional
 
 import discord
 from discord import app_commands
@@ -85,7 +84,7 @@ def _check_cooldown_message(
 
 
 # =========================================================
-#   作成モーダル → ビットレート選択 → 作成
+#   作成モーダル → 作成（ビットレートはデフォルト固定）
 # =========================================================
 class RoomCreateModal(_BaseModal, title="プライベートルーム作成"):
     room_name = discord.ui.TextInput(
@@ -114,29 +113,6 @@ class RoomCreateModal(_BaseModal, title="プライベートルーム作成"):
             )
             return
 
-        view = BitrateSelectView(
-            self.category_id, self.room_name.value, limit
-        )
-        await interaction.response.send_message(
-            "ビットレートを選択してください。",
-            view=view,
-            ephemeral=True,
-        )
-
-
-class BitrateSelect(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label=label, value=str(bps))
-            for label, bps in private_room_service.BITRATE_CHOICES
-        ]
-        super().__init__(
-            placeholder="ビットレートを選択してください",
-            options=options,
-        )
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        view: BitrateSelectView = self.view  # type: ignore[assignment]
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         try:
@@ -144,10 +120,10 @@ class BitrateSelect(discord.ui.Select):
                 await private_room_service.create_room(
                     interaction.guild,
                     interaction.user,
-                    view.category_id,
-                    view.room_name_raw,
-                    view.human_limit,
-                    int(self.values[0]),
+                    self.category_id,
+                    self.room_name.value,
+                    limit,
+                    private_room_service.DEFAULT_BITRATE_BPS,
                 )
             )
         except PrivateRoomError as exc:
@@ -157,32 +133,11 @@ class BitrateSelect(discord.ui.Select):
         message = f"ルームを作成しました → {channel.mention}"
         if corrected:
             message += (
-                f"\n選択されたビットレートは現在のサーバーでは"
+                f"\nデフォルトのビットレートは現在のサーバーでは"
                 f"設定できません。設定可能な最大値である"
                 f"{actual_bitrate}bpsに変更しました。"
             )
         await interaction.followup.send(message, ephemeral=True)
-
-        for item in view.children:
-            item.disabled = True
-        try:
-            await interaction.edit_original_response(view=view)
-        except discord.HTTPException:
-            pass
-
-
-class BitrateSelectView(_BaseView):
-    def __init__(
-        self,
-        category_id: int,
-        room_name_raw: str,
-        human_limit: Optional[int],
-    ):
-        super().__init__(timeout=120)
-        self.category_id = category_id
-        self.room_name_raw = room_name_raw
-        self.human_limit = human_limit
-        self.add_item(BitrateSelect())
 
 
 # =========================================================
