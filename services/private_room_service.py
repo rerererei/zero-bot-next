@@ -265,7 +265,7 @@ async def mark_menu_category_missing(
 #    入力検証・派生値
 # =============================
 def default_room_name(member: discord.Member) -> str:
-    name = f"{member.display_name}の部屋"
+    name = f"{member.display_name}'s ROOM"
     return name[:80]
 
 

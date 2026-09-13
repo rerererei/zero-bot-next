@@ -87,15 +87,15 @@ def _check_cooldown_message(
 #   作成モーダル → 作成（ビットレートはデフォルト固定）
 # =========================================================
 class RoomCreateModal(_BaseModal, title="プライベートルーム作成"):
-    room_name = discord.ui.TextInput(
-        label="部屋名（空欄で「〇〇の部屋」）",
-        required=False,
-        max_length=80,
-    )
     human_limit = discord.ui.TextInput(
         label="人数（空欄で無制限・3〜99人）",
         required=False,
         max_length=3,
+    )
+    room_name = discord.ui.TextInput(
+        label="部屋名（空欄で「(表示名)'s ROOM」）",
+        required=False,
+        max_length=80,
     )
 
     def __init__(self, category_id: int):
