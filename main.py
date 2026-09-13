@@ -56,6 +56,9 @@ class ZeroBot(commands.Bot):
             # rainbowl（セルフサービスのロール付与ボタン）
             "cogs.rainbowl_role_buttons",
 
+            # rainbowl（プライベートルーム機能）
+            "cogs.rainbowl_private_rooms",
+
         ]
 
         for ext in extensions:
