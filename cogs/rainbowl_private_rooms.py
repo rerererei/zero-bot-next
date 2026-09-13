@@ -1105,10 +1105,6 @@ class RainbowlPrivateRooms(commands.Cog):
             return
 
         message = await interaction.channel.send(
-            content=(
-                f"🔒 プライベート会議を作成"
-                f"（作成先カテゴリ: {category.name}）"
-            ),
             view=CreateRoomButtonView(category.id),
         )
 
