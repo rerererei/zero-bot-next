@@ -44,6 +44,7 @@ class ZeroBot(commands.Bot):
             "cogs.voice_events",
             "cogs.message_handler",
             "cogs.archive_manager",
+            "cogs.server_logs",
 
             # BDSM Check
             "cogs.bdsm_commands",

@@ -3,7 +3,10 @@
 プライベートルーム機能の権限（チャンネル個別上書き）まわり。
 
 方針（プライベートルーム機能.md 6章・33章）:
-- @everyone: チャンネルを見る = 拒否。それ以外は上書きしない。
+- @everyone: プライベート系は「チャンネルを見る」を拒否。
+  パブリック系（招待制ではない部屋）は逆に「チャンネルを見る・VCへ接続」
+  を明示許可する（PUBLIC_EVERYONE_OVERWRITE）。呼び出し側が
+  部屋種別に応じてどちらを使うか選ぶ。
 - 作成者・招待ユーザー: 閲覧・接続・発言・VCインチャ投稿/履歴のみ明示許可。
   管理系権限（チャンネル管理・権限管理・移動/ミュート等）は付与しない。
 - Bot: チャンネル管理・権限管理ができるよう明示許可。
@@ -40,6 +43,11 @@ _MANAGED_FIELDS = (
 
 EVERYONE_OVERWRITE = discord.PermissionOverwrite(view_channel=False)
 
+# パブリック系（招待制ではない）部屋用。誰でも見える・入れるようにする。
+PUBLIC_EVERYONE_OVERWRITE = discord.PermissionOverwrite(
+    view_channel=True, connect=True
+)
+
 MEMBER_OVERWRITE = discord.PermissionOverwrite(
     view_channel=True,
     connect=True,
@@ -61,10 +69,11 @@ def build_expected_overwrites(
     owner_id: int,
     invited_user_ids: Iterable[str],
     bot_member: discord.Member,
+    everyone_overwrite: discord.PermissionOverwrite = EVERYONE_OVERWRITE,
 ) -> Dict[discord.abc.Snowflake, discord.PermissionOverwrite]:
     """このルームで本来あるべき権限上書きの全体を組み立てる。"""
     expected: Dict[discord.abc.Snowflake, discord.PermissionOverwrite] = {
-        guild.default_role: EVERYONE_OVERWRITE,
+        guild.default_role: everyone_overwrite,
         bot_member: BOT_OVERWRITE,
     }
 
@@ -104,6 +113,7 @@ async def apply_room_permissions(
     bot_member: discord.Member,
     *,
     reason: str,
+    everyone_overwrite: discord.PermissionOverwrite = EVERYONE_OVERWRITE,
 ) -> List[str]:
     """
     期待される権限状態との差分だけを実際に編集する。
@@ -111,7 +121,7 @@ async def apply_room_permissions(
     戻り値: 実際に変更した内容の説明（操作ログ用）。空リストなら無変更。
     """
     expected = build_expected_overwrites(
-        guild, owner_id, invited_user_ids, bot_member
+        guild, owner_id, invited_user_ids, bot_member, everyone_overwrite
     )
     changed: List[str] = []
 

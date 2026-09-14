@@ -6,8 +6,10 @@ Discordイベント・インタラクションの受け口はこのファイル�
 判定・DynamoDB操作・チャンネル操作は
 services/private_room_service.py に集約する。
 
-対応する部屋種別は「プライベート会議」「プライベート個室」の2種別
-（プライベートルーム機能.md 1章＋個室は会議の1対1版）。
+対応する部屋種別は「プライベート会議」「プライベート個室」
+「パブリック会議」「パブリック個室」の4種別
+（プライベートルーム機能.md 1章＋個室は会議の1対1版、
+パブリック系は招待制ではなく誰でも見える・入れる版）。
 """
 
 import asyncio
@@ -86,31 +88,67 @@ def _check_cooldown_message(
 
 # =========================================================
 #   作成モーダル → 作成（ビットレートはデフォルト固定）
+#
+#   人数入力が要る種別（会議系）か、相手選択が要る種別（個室系）かで
+#   フィールド・送信後の分岐が変わるため、フィールドをコンストラクタで
+#   動的に組み立てる1クラスにまとめている。
 # =========================================================
-class RoomCreateModal(_BaseModal, title="プライベートルーム作成"):
-    human_limit = discord.ui.TextInput(
-        label="人数（空欄で無制限・3〜99人）",
-        required=False,
-        max_length=3,
-    )
-    room_name = discord.ui.TextInput(
-        label="部屋名（空欄で「(表示名)'s ROOM」）",
-        required=False,
-        max_length=80,
-    )
+ROOM_CREATE_MODAL_TITLES = {
+    private_room_service.ROOM_TYPE_PRIVATE_MEETING: "プライベート会議作成",
+    private_room_service.ROOM_TYPE_PRIVATE_SOLO: "プライベート個室作成",
+    private_room_service.ROOM_TYPE_PUBLIC_MEETING: "パブリック会議作成",
+    private_room_service.ROOM_TYPE_PUBLIC_SOLO: "パブリック個室作成",
+}
 
-    def __init__(self, category_id: int):
-        super().__init__()
+
+class RoomCreateModal(_BaseModal):
+    def __init__(self, room_type: str, category_id: int):
+        super().__init__(
+            title=ROOM_CREATE_MODAL_TITLES.get(room_type, "ルーム作成")
+        )
+        self.room_type = room_type
         self.category_id = category_id
 
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        try:
-            limit = private_room_service.parse_human_limit(
-                self.human_limit.value
+        self.human_limit_input = None
+        if not private_room_service.is_solo_room_type(room_type):
+            self.human_limit_input = discord.ui.TextInput(
+                label="人数（空欄で無制限・3〜99人）",
+                required=False,
+                max_length=3,
             )
-        except PrivateRoomError as exc:
+            self.add_item(self.human_limit_input)
+
+        self.room_name_input = discord.ui.TextInput(
+            label="部屋名（空欄で「(表示名)'s ROOM」）",
+            required=False,
+            max_length=80,
+        )
+        self.add_item(self.room_name_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        room_name_raw = self.room_name_input.value
+
+        if self.human_limit_input is not None:
+            try:
+                limit = private_room_service.parse_human_limit(
+                    self.human_limit_input.value
+                )
+            except PrivateRoomError as exc:
+                await interaction.response.send_message(
+                    str(exc), ephemeral=True
+                )
+                return
+        else:
+            limit = private_room_service.SOLO_ROOM_HUMAN_LIMIT
+
+        # プライベート個室だけは相手を1人選んでもらう必要がある。
+        # パブリック個室は招待制ではないため相手選択は不要。
+        if self.room_type == private_room_service.ROOM_TYPE_PRIVATE_SOLO:
+            view = SoloPartnerSelectView(self.category_id, room_name_raw)
             await interaction.response.send_message(
-                str(exc), ephemeral=True
+                "一緒に入る相手を選択してください。",
+                view=view,
+                ephemeral=True,
             )
             return
 
@@ -122,9 +160,10 @@ class RoomCreateModal(_BaseModal, title="プライベートルーム作成"):
                     interaction.guild,
                     interaction.user,
                     self.category_id,
-                    self.room_name.value,
+                    room_name_raw,
                     limit,
                     private_room_service.DEFAULT_BITRATE_BPS,
+                    room_type=self.room_type,
                 )
             )
         except PrivateRoomError as exc:
@@ -142,30 +181,8 @@ class RoomCreateModal(_BaseModal, title="プライベートルーム作成"):
 
 
 # =========================================================
-#   作成モーダル（個室） → 相手選択 → 作成
+#   プライベート個室 相手選択
 # =========================================================
-class SoloRoomCreateModal(_BaseModal, title="プライベート個室作成"):
-    room_name = discord.ui.TextInput(
-        label="部屋名（空欄で「(表示名)'s ROOM」）",
-        required=False,
-        max_length=80,
-    )
-
-    def __init__(self, category_id: int):
-        super().__init__()
-        self.category_id = category_id
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        view = SoloPartnerSelectView(
-            self.category_id, self.room_name.value
-        )
-        await interaction.response.send_message(
-            "一緒に入る相手を選択してください。",
-            view=view,
-            ephemeral=True,
-        )
-
-
 class SoloPartnerSelect(discord.ui.UserSelect):
     def __init__(self, category_id: int, room_name_raw: str):
         super().__init__(
@@ -239,6 +256,8 @@ class SoloPartnerSelectView(_BaseView):
 CREATE_BUTTON_LABELS = {
     private_room_service.ROOM_TYPE_PRIVATE_MEETING: "🔒 プライベート会議を作成",
     private_room_service.ROOM_TYPE_PRIVATE_SOLO: "🔒 プライベート個室を作成",
+    private_room_service.ROOM_TYPE_PUBLIC_MEETING: "🔓 パブリック会議を作成",
+    private_room_service.ROOM_TYPE_PUBLIC_SOLO: "🔓 パブリック個室を作成",
 }
 
 
@@ -265,14 +284,9 @@ class CreateRoomButton(discord.ui.Button):
         ].split(":", 1)
         category_id = int(category_id_text)
 
-        if room_type == private_room_service.ROOM_TYPE_PRIVATE_SOLO:
-            await interaction.response.send_modal(
-                SoloRoomCreateModal(category_id)
-            )
-        else:
-            await interaction.response.send_modal(
-                RoomCreateModal(category_id)
-            )
+        await interaction.response.send_modal(
+            RoomCreateModal(room_type, category_id)
+        )
 
 
 class CreateRoomButtonView(_BaseView):
@@ -584,9 +598,99 @@ class InvitedListView(_BaseView):
         await interaction.edit_original_response(embed=embed, view=self)
 
 
+# =========================================================
+#   ルームメニュー共通ハンドラ
+#
+#   部屋名/ステータス/人数/ビットレート変更は、プライベート・パブリック
+#   両方のルームメニューで共通なのでここに集約する。招待系はプライベート
+#   専用のためRoomMenuView側にだけ実装する。
+# =========================================================
+async def _handle_rename_button(interaction: discord.Interaction) -> None:
+    if _check_cooldown_message(
+        interaction,
+        GENERAL_COOLDOWN_KEY,
+        private_room_service.ROOM_MENU_COOLDOWN_SECONDS,
+    ):
+        await interaction.response.send_message(
+            "少し間隔をあけてから操作してください。", ephemeral=True
+        )
+        return
+    if not isinstance(interaction.channel, discord.VoiceChannel):
+        await interaction.response.send_message(
+            "VCインチャ内で使用してください。", ephemeral=True
+        )
+        return
+    await interaction.response.send_modal(
+        RenameModal(interaction.channel.id)
+    )
+
+
+async def _handle_status_button(interaction: discord.Interaction) -> None:
+    if _check_cooldown_message(
+        interaction,
+        GENERAL_COOLDOWN_KEY,
+        private_room_service.ROOM_MENU_COOLDOWN_SECONDS,
+    ):
+        await interaction.response.send_message(
+            "少し間隔をあけてから操作してください。", ephemeral=True
+        )
+        return
+    if not isinstance(interaction.channel, discord.VoiceChannel):
+        await interaction.response.send_message(
+            "VCインチャ内で使用してください。", ephemeral=True
+        )
+        return
+    await interaction.response.send_modal(
+        StatusModal(interaction.channel.id)
+    )
+
+
+async def _handle_limit_button(interaction: discord.Interaction) -> None:
+    if _check_cooldown_message(
+        interaction,
+        GENERAL_COOLDOWN_KEY,
+        private_room_service.ROOM_MENU_COOLDOWN_SECONDS,
+    ):
+        await interaction.response.send_message(
+            "少し間隔をあけてから操作してください。", ephemeral=True
+        )
+        return
+    if not isinstance(interaction.channel, discord.VoiceChannel):
+        await interaction.response.send_message(
+            "VCインチャ内で使用してください。", ephemeral=True
+        )
+        return
+    await interaction.response.send_modal(
+        LimitModal(interaction.channel.id)
+    )
+
+
+async def _handle_bitrate_button(interaction: discord.Interaction) -> None:
+    if _check_cooldown_message(
+        interaction,
+        GENERAL_COOLDOWN_KEY,
+        private_room_service.ROOM_MENU_COOLDOWN_SECONDS,
+    ):
+        await interaction.response.send_message(
+            "少し間隔をあけてから操作してください。", ephemeral=True
+        )
+        return
+    if not isinstance(interaction.channel, discord.VoiceChannel):
+        await interaction.response.send_message(
+            "VCインチャ内で使用してください。", ephemeral=True
+        )
+        return
+    view = ChangeBitrateSelectView(interaction.channel.id)
+    await interaction.response.send_message(
+        "変更後のビットレートを選択してください。",
+        view=view,
+        ephemeral=True,
+    )
+
+
 class RoomMenuView(_BaseView):
     """
-    プライベート会議のVCインチャに投稿する永続View。
+    プライベート会議・プライベート個室のVCインチャに投稿する永続View。
 
     どのメッセージ／どのチャンネルでも interaction.channel から
     対象VCを特定できるため、custom_idに部屋固有の情報は含めない。
@@ -607,23 +711,7 @@ class RoomMenuView(_BaseView):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        if _check_cooldown_message(
-            interaction,
-            GENERAL_COOLDOWN_KEY,
-            private_room_service.ROOM_MENU_COOLDOWN_SECONDS,
-        ):
-            await interaction.response.send_message(
-                "少し間隔をあけてから操作してください。", ephemeral=True
-            )
-            return
-        if not isinstance(interaction.channel, discord.VoiceChannel):
-            await interaction.response.send_message(
-                "VCインチャ内で使用してください。", ephemeral=True
-            )
-            return
-        await interaction.response.send_modal(
-            RenameModal(interaction.channel.id)
-        )
+        await _handle_rename_button(interaction)
 
     @discord.ui.button(
         label="ステータス変更",
@@ -636,23 +724,7 @@ class RoomMenuView(_BaseView):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        if _check_cooldown_message(
-            interaction,
-            GENERAL_COOLDOWN_KEY,
-            private_room_service.ROOM_MENU_COOLDOWN_SECONDS,
-        ):
-            await interaction.response.send_message(
-                "少し間隔をあけてから操作してください。", ephemeral=True
-            )
-            return
-        if not isinstance(interaction.channel, discord.VoiceChannel):
-            await interaction.response.send_message(
-                "VCインチャ内で使用してください。", ephemeral=True
-            )
-            return
-        await interaction.response.send_modal(
-            StatusModal(interaction.channel.id)
-        )
+        await _handle_status_button(interaction)
 
     @discord.ui.button(
         label="人数変更",
@@ -665,23 +737,7 @@ class RoomMenuView(_BaseView):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        if _check_cooldown_message(
-            interaction,
-            GENERAL_COOLDOWN_KEY,
-            private_room_service.ROOM_MENU_COOLDOWN_SECONDS,
-        ):
-            await interaction.response.send_message(
-                "少し間隔をあけてから操作してください。", ephemeral=True
-            )
-            return
-        if not isinstance(interaction.channel, discord.VoiceChannel):
-            await interaction.response.send_message(
-                "VCインチャ内で使用してください。", ephemeral=True
-            )
-            return
-        await interaction.response.send_modal(
-            LimitModal(interaction.channel.id)
-        )
+        await _handle_limit_button(interaction)
 
     @discord.ui.button(
         label="ビットレート変更",
@@ -694,26 +750,7 @@ class RoomMenuView(_BaseView):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        if _check_cooldown_message(
-            interaction,
-            GENERAL_COOLDOWN_KEY,
-            private_room_service.ROOM_MENU_COOLDOWN_SECONDS,
-        ):
-            await interaction.response.send_message(
-                "少し間隔をあけてから操作してください。", ephemeral=True
-            )
-            return
-        if not isinstance(interaction.channel, discord.VoiceChannel):
-            await interaction.response.send_message(
-                "VCインチャ内で使用してください。", ephemeral=True
-            )
-            return
-        view = ChangeBitrateSelectView(interaction.channel.id)
-        await interaction.response.send_message(
-            "変更後のビットレートを選択してください。",
-            view=view,
-            ephemeral=True,
-        )
+        await _handle_bitrate_button(interaction)
 
     @discord.ui.button(
         label="ユーザー招待",
@@ -830,6 +867,70 @@ class RoomMenuView(_BaseView):
         )
 
 
+class PublicRoomMenuView(_BaseView):
+    """
+    パブリック会議・パブリック個室のVCインチャに投稿する永続View。
+
+    招待制ではない（誰でも見える・入れる）ため、招待系のボタンは無い。
+    custom_idはRoomMenuViewと重複しないよう別プレフィックスにしている。
+    """
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="部屋名変更",
+        style=discord.ButtonStyle.secondary,
+        custom_id="public_room_menu:rename",
+        row=0,
+    )
+    async def rename_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        await _handle_rename_button(interaction)
+
+    @discord.ui.button(
+        label="ステータス変更",
+        style=discord.ButtonStyle.secondary,
+        custom_id="public_room_menu:status",
+        row=0,
+    )
+    async def status_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        await _handle_status_button(interaction)
+
+    @discord.ui.button(
+        label="人数変更",
+        style=discord.ButtonStyle.secondary,
+        custom_id="public_room_menu:limit",
+        row=0,
+    )
+    async def limit_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        await _handle_limit_button(interaction)
+
+    @discord.ui.button(
+        label="ビットレート変更",
+        style=discord.ButtonStyle.secondary,
+        custom_id="public_room_menu:bitrate",
+        row=0,
+    )
+    async def bitrate_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ) -> None:
+        await _handle_bitrate_button(interaction)
+
+
 # =========================================================
 #   Cog本体
 # =========================================================
@@ -876,6 +977,7 @@ class RainbowlPrivateRooms(commands.Cog):
         self._startup_done = True
 
         self.bot.add_view(RoomMenuView())
+        self.bot.add_view(PublicRoomMenuView())
         self.bot.add_view(DeleteOwnRoomButtonView())
 
         for guild in self.bot.guilds:
@@ -1214,7 +1316,9 @@ class RainbowlPrivateRooms(commands.Cog):
             )
             return
 
-        if not private_room_service.category_is_private_safe(category):
+        if not private_room_service.is_public_room_type(
+            room_type.value
+        ) and not private_room_service.category_is_private_safe(category):
             await interaction.followup.send(
                 "このカテゴリは@everyoneまたは他ロールに"
                 "「チャンネルを見る」が許可されており、"

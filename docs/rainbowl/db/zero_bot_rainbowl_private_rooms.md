@@ -22,7 +22,7 @@ Discordのスノーフレークは64bitで、Decimal→float変換すると精�
 |---|---|---|
 | `channel_id` | String | VCのチャンネルID |
 | `owner_id` | String | 作成者（オーナー）のユーザーID |
-| `room_type` | String | `"PRIVATE_MEETING"`（プライベート会議）/ `"PRIVATE_SOLO"`（プライベート個室・会議の1対1版）。権限モデル・削除・自動修復等の挙動は両者で共通で、作成フローのみ異なる |
+| `room_type` | String | `"PRIVATE_MEETING"`（プライベート会議）/ `"PRIVATE_SOLO"`（プライベート個室）/ `"PUBLIC_MEETING"`（パブリック会議）/ `"PUBLIC_SOLO"`（パブリック個室）。削除・自動修復・ルームメニュー操作の権限チェック等の挙動は全種別共通。異なるのは作成フロー（人数入力か相手選択か招待なしか）と、@everyoneへの権限（PRIVATE系は拒否・PUBLIC系は許可）のみ |
 | `destination_category_id` | String | 本来の作成先カテゴリID |
 | `room_menu_message_id` | String \| 属性なし | VCインチャに投稿したルームメニューのメッセージID |
 | `room_name` | String | 部屋名 |

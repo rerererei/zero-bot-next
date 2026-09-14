@@ -6,11 +6,13 @@ Cog（cogs/rainbowl_private_rooms.py）はDiscordイベント・インタラク�
 受け口として薄く保ち、判定・DynamoDB操作・チャンネル操作はこのモジュールに
 集約する（rainbowl_onboarding_serviceと同じ方針）。
 
-このモジュールが対応するのは「プライベート会議」「プライベート個室」の
-2種別のみ（プライベートルーム機能.md 1章＋個室は会議の1対1版として追加）。
-権限モデル・削除・自動修復等の挙動は両者で共通で、違いは作成フロー
-（人数入力か、相手を1人選ぶか）だけ。他の部屋種別（パブリック会議等）を
-将来追加する場合でも、このモジュールを直接は再利用しない前提。
+このモジュールが対応するのは「プライベート会議」「プライベート個室」
+「パブリック会議」「パブリック個室」の4種別
+（プライベートルーム機能.md 1章＋個室は会議の1対1版、
+パブリック系はプライベート系から「招待制」を外しただけの版）。
+削除・自動修復・ルームメニューの操作権限チェック等の挙動は全種別共通。
+異なるのは作成フロー（人数入力／相手を1人選ぶ／どちらも無し）と、
+@everyoneへの権限（プライベート系は拒否・パブリック系は許可）のみ。
 
 rainbowl専用機能であることのゲートは、既存rainbowl系Cogと同じく
 guild_config["rainbowl"]の有無で判定する（ハードコードのギルドIDは使わない）。
@@ -45,6 +47,7 @@ from services.private_room_permissions import (
     BOT_OVERWRITE,
     EVERYONE_OVERWRITE,
     MEMBER_OVERWRITE,
+    PUBLIC_EVERYONE_OVERWRITE,
     apply_room_permissions,
 )
 from utils.room_text_validation import (
@@ -56,18 +59,49 @@ JST = timezone(timedelta(hours=9))
 
 ROOM_TYPE_PRIVATE_MEETING = "PRIVATE_MEETING"
 ROOM_TYPE_PRIVATE_SOLO = "PRIVATE_SOLO"
+ROOM_TYPE_PUBLIC_MEETING = "PUBLIC_MEETING"
+ROOM_TYPE_PUBLIC_SOLO = "PUBLIC_SOLO"
+
+# 招待制ではない（@everyoneに閲覧・接続を許可する）部屋種別。
+PUBLIC_ROOM_TYPES = {ROOM_TYPE_PUBLIC_MEETING, ROOM_TYPE_PUBLIC_SOLO}
+
+# 相手を選ばず「作成者+相手1人」固定の部屋種別（個室系）。
+SOLO_ROOM_TYPES = {ROOM_TYPE_PRIVATE_SOLO, ROOM_TYPE_PUBLIC_SOLO}
 
 ROOM_TYPE_CHOICES: List[Tuple[str, str]] = [
     ("プライベート会議", ROOM_TYPE_PRIVATE_MEETING),
     ("プライベート個室", ROOM_TYPE_PRIVATE_SOLO),
+    ("パブリック会議", ROOM_TYPE_PUBLIC_MEETING),
+    ("パブリック個室", ROOM_TYPE_PUBLIC_SOLO),
 ]
 
 ROOM_TYPE_DISPLAY_NAMES = {
     ROOM_TYPE_PRIVATE_MEETING: "プライベート会議",
     ROOM_TYPE_PRIVATE_SOLO: "プライベート個室",
+    ROOM_TYPE_PUBLIC_MEETING: "パブリック会議",
+    ROOM_TYPE_PUBLIC_SOLO: "パブリック個室",
 }
 
-# プライベート個室は「作成者+相手1人」固定。人数変更メニューからは
+
+def is_public_room_type(room_type: str) -> bool:
+    return room_type in PUBLIC_ROOM_TYPES
+
+
+def is_solo_room_type(room_type: str) -> bool:
+    return room_type in SOLO_ROOM_TYPES
+
+
+def everyone_overwrite_for_room_type(
+    room_type: str,
+) -> discord.PermissionOverwrite:
+    return (
+        PUBLIC_EVERYONE_OVERWRITE
+        if is_public_room_type(room_type)
+        else EVERYONE_OVERWRITE
+    )
+
+
+# 個室系は「作成者+相手1人」固定。人数変更メニューからは
 # あとで自由に変更できる(会議と同じ仕様に合わせるため)。
 SOLO_ROOM_HUMAN_LIMIT = 2
 
@@ -377,13 +411,26 @@ def category_is_private_safe(category: discord.CategoryChannel) -> bool:
 
 def build_room_menu_embed(
     owner: discord.Member,
+    room_type: str = ROOM_TYPE_PRIVATE_MEETING,
 ) -> discord.Embed:
+    is_public = is_public_room_type(room_type)
+    title = (
+        "🔓 パブリックルーム メニュー"
+        if is_public
+        else "🔒 プライベートルーム メニュー"
+    )
+    description = (
+        "このルームの設定は、以下のボタンから操作できます。\n"
+        + (
+            "操作できるのは作成者・管理者のみです"
+            "（誰でも参加はできます）。"
+            if is_public
+            else "操作できるのは作成者・招待ユーザー・管理者のみです。"
+        )
+    )
     embed = discord.Embed(
-        title="🔒 プライベートルーム メニュー",
-        description=(
-            "このルームの設定は、以下のボタンから操作できます。\n"
-            "操作できるのは作成者・招待ユーザー・管理者のみです。"
-        ),
+        title=title,
+        description=description,
         color=discord.Color.dark_purple(),
     )
     embed.add_field(
@@ -573,6 +620,8 @@ async def create_room(
             requested_bitrate, guild
         )
 
+        is_public = is_public_room_type(room_type)
+
         initial_invitees: List[discord.Member] = []
         for raw_uid in initial_invited_ids or []:
             resolved = guild.get_member(raw_uid)
@@ -582,7 +631,9 @@ async def create_room(
                 initial_invitees.append(resolved)
 
         overwrites = {
-            guild.default_role: EVERYONE_OVERWRITE,
+            guild.default_role: everyone_overwrite_for_room_type(
+                room_type
+            ),
             guild.me: BOT_OVERWRITE,
             member: MEMBER_OVERWRITE,
         }
@@ -623,19 +674,23 @@ async def create_room(
                 )
 
             # 遅延importで循環importを避ける（Viewはcogs側で定義）
-            from cogs.rainbowl_private_rooms import RoomMenuView
+            from cogs.rainbowl_private_rooms import (
+                PublicRoomMenuView,
+                RoomMenuView,
+            )
 
+            room_label = "パブリック" if is_public else "プライベート"
             menu_message = await channel.send(
-                content=f"{member.mention} さんのプライベートルームです。",
-                embed=build_room_menu_embed(member),
-                view=RoomMenuView(),
+                content=f"{member.mention} さんの{room_label}ルームです。",
+                embed=build_room_menu_embed(member, room_type),
+                view=PublicRoomMenuView() if is_public else RoomMenuView(),
             )
 
             if initial_invitees:
                 mentions = " ".join(u.mention for u in initial_invitees)
                 await channel.send(
                     f"{mentions}\n\n"
-                    "🔒 このプライベートルームに招待されました。\n"
+                    f"🔒 この{room_label}ルームに招待されました。\n"
                     "VCへの参加とルームメニューの操作が可能です。"
                 )
 
@@ -1166,6 +1221,9 @@ async def invite_users(
             invited_ids_after,
             guild.me,
             reason=f"{member} によるユーザー招待",
+            everyone_overwrite=everyone_overwrite_for_room_type(
+                room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
+            ),
         )
         await channel.edit(
             user_limit=compute_effective_user_limit(
@@ -1247,6 +1305,9 @@ async def uninvite_user(
                 room.get("invited_user_ids") or [],
                 guild.me,
                 reason=f"{member} による招待解除",
+                everyone_overwrite=everyone_overwrite_for_room_type(
+                    room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
+                ),
             )
 
     target_member = guild.get_member(target_id)
@@ -1301,6 +1362,9 @@ async def finalize_pending_removal(
             room.get("invited_user_ids") or [],
             guild.me,
             reason="招待解除待ちユーザーの退出による権限確定",
+            everyone_overwrite=everyone_overwrite_for_room_type(
+                room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
+            ),
         )
 
 
@@ -1356,6 +1420,9 @@ async def repair_room_permissions(
         room.get("invited_user_ids") or [],
         guild.me,
         reason="権限の自動修復",
+        everyone_overwrite=everyone_overwrite_for_room_type(
+            room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
+        ),
     )
 
 
