@@ -151,60 +151,83 @@ async def send_role_change_log(
 # =============================
 #    編集ログ
 # =============================
+# キャッシュに残っていない古い投稿の編集は before_content が None になる
+# （Discord側が編集前の内容を返さないため、こちらでは復元できない）。
+UNKNOWN_CONTENT_TEXT = "（不明：キャッシュ切れのため取得できません）"
+
+
 async def send_message_edit_log(
-    before: discord.Message, after: discord.Message
+    *,
+    guild: discord.Guild,
+    channel: Any,
+    message_id: int,
+    author_id: int,
+    before_content: Optional[str],
+    after_content: str,
 ) -> None:
-    channel = _get_log_channel(after.guild, LOG_TYPE_EDIT)
-    if channel is None:
+    log_channel = _get_log_channel(guild, LOG_TYPE_EDIT)
+    if log_channel is None:
         return
+
+    jump_url = (
+        f"https://discord.com/channels/{guild.id}/{channel.id}/{message_id}"
+    )
+    before_display = (
+        truncate(before_content) or "（空欄）"
+        if before_content is not None
+        else UNKNOWN_CONTENT_TEXT
+    )
+    after_display = truncate(after_content) or "（空欄）"
 
     embed = discord.Embed(
         description=(
-            f"📝 {after.author.mention} が {after.channel.mention} で"
+            f"📝 <@{author_id}> が {channel.mention} で"
             f"送信したメッセージが編集されました。\n"
-            f"[ページへ移動]({after.jump_url})"
+            f"[ページへ移動]({jump_url})"
         ),
         color=COLOR_EDIT,
     )
-    embed.add_field(
-        name="変更前",
-        value=truncate(before.content) or "（空欄）",
-        inline=False,
-    )
-    embed.add_field(
-        name="変更後",
-        value=truncate(after.content) or "（空欄）",
-        inline=False,
-    )
+    embed.add_field(name="変更前", value=before_display, inline=False)
+    embed.add_field(name="変更後", value=after_display, inline=False)
     embed.set_footer(
-        text=format_footer(after.guild, datetime.now(timezone.utc))
+        text=format_footer(guild, datetime.now(timezone.utc))
     )
-    await _send(channel, embed)
+    await _send(log_channel, embed)
 
 
 # =============================
 #    削除ログ
 # =============================
-async def send_message_delete_log(message: discord.Message) -> None:
-    channel = _get_log_channel(message.guild, LOG_TYPE_DELETE)
-    if channel is None:
+async def send_message_delete_log(
+    *,
+    guild: discord.Guild,
+    channel: Any,
+    author_id: Optional[int],
+    content: Optional[str],
+) -> None:
+    log_channel = _get_log_channel(guild, LOG_TYPE_DELETE)
+    if log_channel is None:
         return
 
-    content = (message.content or "").strip()
-    content_display = truncate(content) if content else CONTENT_REMOVED_TEXT
+    author_display = f"<@{author_id}>" if author_id is not None else "不明なユーザー"
+    if content is None:
+        content_display = UNKNOWN_CONTENT_TEXT
+    else:
+        content = content.strip()
+        content_display = truncate(content) if content else CONTENT_REMOVED_TEXT
 
     embed = discord.Embed(
         description=(
-            f"🗑️ {message.author.mention} が送信したメッセージが "
-            f"{message.channel.mention} で削除されました。\n\n"
+            f"🗑️ {author_display} が送信したメッセージが "
+            f"{channel.mention} で削除されました。\n\n"
             f"{content_display}"
         ),
         color=COLOR_DELETE,
     )
     embed.set_footer(
-        text=format_footer(message.guild, datetime.now(timezone.utc))
+        text=format_footer(guild, datetime.now(timezone.utc))
     )
-    await _send(channel, embed)
+    await _send(log_channel, embed)
 
 
 # =============================

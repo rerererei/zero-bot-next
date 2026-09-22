@@ -11,6 +11,11 @@
 Botユーザーのメッセージ・ロールは対象外（人間の操作のみ記録する）。
 投稿先チャンネルは guild_config["server_logs"] にギルドごとに設定し、
 未設定のギルドには一切影響しない。
+
+編集・削除ログは on_raw_message_edit / on_raw_message_delete を使い、
+Botの内部メッセージキャッシュに残っていない古い投稿への操作も拾う。
+ただしキャッシュに無かった場合、Discord側が編集前・削除済みの本文を
+教えてくれないため、その内容は「不明」として表示する。
 """
 
 import discord
@@ -60,46 +65,99 @@ class ServerLogsCog(commands.Cog):
             print(f"[server_logs] role change log error: {exc}")
 
     # ========================================
-    # 編集ログ
+    # 編集ログ（Raw版：キャッシュに無い古い投稿の編集も拾う）
     # ========================================
     @commands.Cog.listener()
-    async def on_message_edit(
-        self, before: discord.Message, after: discord.Message
+    async def on_raw_message_edit(
+        self, payload: discord.RawMessageUpdateEvent
     ) -> None:
-        if after.guild is None:
+        if payload.guild_id is None:
             return
-        if after.author.bot:
+        if "content" not in payload.data:
+            # 本文以外の更新（リンク展開によるembed付与等）は無視
             return
-        if not isinstance(
-            after.channel, server_log_service.LOGGABLE_CHANNEL_TYPES
-        ):
+
+        cached = payload.cached_message
+        author_data = payload.data.get("author") or {}
+        if cached is not None:
+            if cached.author.bot:
+                return
+        elif author_data.get("bot"):
             return
-        if before.content == after.content:
+
+        author_id = cached.author.id if cached is not None else author_data.get("id")
+        if author_id is None:
+            return
+
+        channel = await self._resolve_loggable_channel(payload.channel_id)
+        if channel is None:
+            return
+
+        guild = self.bot.get_guild(payload.guild_id)
+        if guild is None:
+            return
+
+        before_content = cached.content if cached is not None else None
+        after_content = payload.data.get("content", "")
+        if before_content is not None and before_content == after_content:
             return
 
         try:
-            await server_log_service.send_message_edit_log(before, after)
+            await server_log_service.send_message_edit_log(
+                guild=guild,
+                channel=channel,
+                message_id=payload.message_id,
+                author_id=int(author_id),
+                before_content=before_content,
+                after_content=after_content,
+            )
         except Exception as exc:
             print(f"[server_logs] message edit log error: {exc}")
 
     # ========================================
-    # 削除ログ
+    # 削除ログ（Raw版：キャッシュに無い古い投稿の削除も拾う）
     # ========================================
     @commands.Cog.listener()
-    async def on_message_delete(self, message: discord.Message) -> None:
-        if message.guild is None:
+    async def on_raw_message_delete(
+        self, payload: discord.RawMessageDeleteEvent
+    ) -> None:
+        if payload.guild_id is None:
             return
-        if message.author.bot:
+
+        cached = payload.cached_message
+        if cached is not None and cached.author.bot:
             return
-        if not isinstance(
-            message.channel, server_log_service.LOGGABLE_CHANNEL_TYPES
-        ):
+
+        channel = await self._resolve_loggable_channel(payload.channel_id)
+        if channel is None:
+            return
+
+        guild = self.bot.get_guild(payload.guild_id)
+        if guild is None:
             return
 
         try:
-            await server_log_service.send_message_delete_log(message)
+            await server_log_service.send_message_delete_log(
+                guild=guild,
+                channel=channel,
+                author_id=cached.author.id if cached is not None else None,
+                content=cached.content if cached is not None else None,
+            )
         except Exception as exc:
             print(f"[server_logs] message delete log error: {exc}")
+
+    async def _resolve_loggable_channel(self, channel_id: int):
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except discord.HTTPException:
+                return None
+        if not isinstance(
+            channel, server_log_service.LOGGABLE_CHANNEL_TYPES
+        ):
+            return None
+        return channel
 
     # ========================================
     # VCログ：入退室
