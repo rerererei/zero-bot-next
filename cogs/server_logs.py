@@ -6,6 +6,7 @@
 - 編集ログ：テキストチャンネル・VCインチャ・スレッドでのメッセージ編集
 - 削除ログ：テキストチャンネル・VCインチャ・スレッドでのメッセージ削除
 - VCログ：ボイスチャンネルへの入退室
+- 退出ログ：サーバーからの脱退（自主退出・Kick・Banを区別せずまとめて記録）
 
 Botユーザーのメッセージ・ロールは対象外（人間の操作のみ記録する）。
 投稿先チャンネルは guild_config["server_logs"] にギルドごとに設定し、
@@ -126,6 +127,19 @@ class ServerLogsCog(commands.Cog):
                 )
         except Exception as exc:
             print(f"[server_logs] voice state log error: {exc}")
+
+    # ========================================
+    # 退出ログ
+    # ========================================
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member) -> None:
+        if member.bot:
+            return
+
+        try:
+            await server_log_service.send_member_leave_log(member)
+        except Exception as exc:
+            print(f"[server_logs] member leave log error: {exc}")
 
     # ========================================
     # 管理者コマンド

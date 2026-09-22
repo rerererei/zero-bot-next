@@ -24,12 +24,14 @@ LOG_TYPE_ADMIN = "admin_log_channel_id"
 LOG_TYPE_EDIT = "edit_log_channel_id"
 LOG_TYPE_DELETE = "delete_log_channel_id"
 LOG_TYPE_VOICE = "voice_log_channel_id"
+LOG_TYPE_LEAVE = "leave_log_channel_id"
 
 LOG_TYPE_CHOICES = [
     ("管理ログ（ロール変更）", LOG_TYPE_ADMIN),
     ("編集ログ", LOG_TYPE_EDIT),
     ("削除ログ", LOG_TYPE_DELETE),
     ("VCログ", LOG_TYPE_VOICE),
+    ("退出ログ", LOG_TYPE_LEAVE),
 ]
 
 # 編集前・編集後・削除本文、それぞれこの文字数で省略する
@@ -40,6 +42,7 @@ COLOR_EDIT = 0x5865F2
 COLOR_DELETE = 0x992D22
 COLOR_VOICE_JOIN = 0x2ECC71
 COLOR_VOICE_LEAVE = 0xE74C3C
+COLOR_LEAVE = 0x99AAB5
 
 CONTENT_REMOVED_TEXT = "（コンテンツが削除されました）"
 
@@ -200,6 +203,27 @@ async def send_message_delete_log(message: discord.Message) -> None:
     )
     embed.set_footer(
         text=format_footer(message.guild, datetime.now(timezone.utc))
+    )
+    await _send(channel, embed)
+
+
+# =============================
+#    退出ログ
+# =============================
+async def send_member_leave_log(member: discord.Member) -> None:
+    channel = _get_log_channel(member.guild, LOG_TYPE_LEAVE)
+    if channel is None:
+        return
+
+    embed = discord.Embed(
+        description=f"{member.mention} が脱退しました",
+        color=COLOR_LEAVE,
+    )
+    embed.set_author(
+        name=str(member), icon_url=member.display_avatar.url
+    )
+    embed.set_footer(
+        text=format_footer(member.guild, datetime.now(timezone.utc))
     )
     await _send(channel, embed)
 
