@@ -104,12 +104,19 @@ class ServerLogsCog(commands.Cog):
         if before_content is not None and before_content == after_content:
             return
 
+        author = (
+            cached.author
+            if cached is not None
+            else await self._resolve_author(int(author_id))
+        )
+
         try:
             await server_log_service.send_message_edit_log(
                 guild=guild,
                 channel=channel,
                 message_id=payload.message_id,
                 author_id=int(author_id),
+                author=author,
                 before_content=before_content,
                 after_content=after_content,
             )
@@ -143,6 +150,7 @@ class ServerLogsCog(commands.Cog):
                 guild=guild,
                 channel=channel,
                 author_id=cached.author.id if cached is not None else None,
+                author=cached.author if cached is not None else None,
                 content=cached.content if cached is not None else None,
             )
         except Exception as exc:
@@ -160,6 +168,15 @@ class ServerLogsCog(commands.Cog):
         ):
             return None
         return channel
+
+    async def _resolve_author(self, user_id: int):
+        user = self.bot.get_user(user_id)
+        if user is not None:
+            return user
+        try:
+            return await self.bot.fetch_user(user_id)
+        except discord.HTTPException:
+            return None
 
     # ========================================
     # VCログ：入退室

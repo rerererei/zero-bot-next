@@ -162,6 +162,7 @@ async def send_message_edit_log(
     channel: Any,
     message_id: int,
     author_id: int,
+    author: Optional[discord.abc.User],
     before_content: Optional[str],
     after_content: str,
 ) -> None:
@@ -187,6 +188,10 @@ async def send_message_edit_log(
         ),
         color=COLOR_EDIT,
     )
+    if author is not None:
+        embed.set_author(
+            name=str(author), icon_url=author.display_avatar.url
+        )
     embed.add_field(name="変更前", value=before_display, inline=False)
     embed.add_field(name="変更後", value=after_display, inline=False)
     embed.set_footer(
@@ -203,6 +208,7 @@ async def send_message_delete_log(
     guild: discord.Guild,
     channel: Any,
     author_id: Optional[int],
+    author: Optional[discord.abc.User],
     content: Optional[str],
 ) -> None:
     log_channel = _get_log_channel(guild, LOG_TYPE_DELETE)
@@ -224,6 +230,10 @@ async def send_message_delete_log(
         ),
         color=COLOR_DELETE,
     )
+    if author is not None:
+        embed.set_author(
+            name=str(author), icon_url=author.display_avatar.url
+        )
     embed.set_footer(
         text=format_footer(guild, datetime.now(timezone.utc))
     )
@@ -273,6 +283,9 @@ async def send_voice_state_log(
             f"{channel_obj.mention}."
         ),
         color=color,
+    )
+    embed.set_author(
+        name=str(member), icon_url=member.display_avatar.url
     )
     embed.set_footer(
         text=format_footer(member.guild, datetime.now(timezone.utc))
