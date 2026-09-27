@@ -73,8 +73,10 @@ class ServerLogsCog(commands.Cog):
     ) -> None:
         if payload.guild_id is None:
             return
-        if "content" not in payload.data:
-            # 本文以外の更新（リンク展開によるembed付与等）は無視
+        if not payload.data.get("edited_timestamp"):
+            # edited_timestampは実際にユーザーが編集した時だけセットされる。
+            # リンク展開によるembed付与などは"content"キーが（値不変のまま）
+            # 含まれることがあるため、contentキーの有無だけでは判定できない。
             return
 
         cached = payload.cached_message
