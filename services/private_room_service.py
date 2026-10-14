@@ -293,9 +293,12 @@ async def add_menu(
     category_id: int,
     menu_channel_id: int,
     message_id: int,
+    *,
+    button_label: str = "",
 ) -> bool:
     """
     同一の 部屋種別+作成先カテゴリ の重複設置を拒否する（2章）。
+    button_labelは再起動時の永続View再登録用（空ならデフォルト文言）。
     成功時True、重複によりFalseを返す。
     """
 
@@ -311,14 +314,15 @@ async def add_menu(
             ):
                 return False
 
-        menus.append(
-            {
-                "room_type": room_type,
-                "category_id": str(category_id),
-                "menu_channel_id": str(menu_channel_id),
-                "message_id": str(message_id),
-            }
-        )
+        menu = {
+            "room_type": room_type,
+            "category_id": str(category_id),
+            "menu_channel_id": str(menu_channel_id),
+            "message_id": str(message_id),
+        }
+        if button_label:
+            menu["button_label"] = button_label
+        menus.append(menu)
         settings["menus"] = menus
         _save_private_room_settings(guild_id, settings)
         return True

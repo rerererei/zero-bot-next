@@ -14,6 +14,7 @@ services/private_room_service.py に集約する。
 
 import asyncio
 import traceback
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -262,9 +263,15 @@ CREATE_BUTTON_LABELS = {
 
 
 class CreateRoomButton(discord.ui.Button):
-    def __init__(self, room_type: str, category_id: int):
+    def __init__(
+        self,
+        room_type: str,
+        category_id: int,
+        label: Optional[str] = None,
+    ):
         super().__init__(
-            label=CREATE_BUTTON_LABELS.get(
+            label=label
+            or CREATE_BUTTON_LABELS.get(
                 room_type, "🔒 プライベートルームを作成"
             ),
             style=discord.ButtonStyle.primary,
@@ -290,9 +297,67 @@ class CreateRoomButton(discord.ui.Button):
 
 
 class CreateRoomButtonView(_BaseView):
-    def __init__(self, room_type: str, category_id: int):
+    def __init__(
+        self,
+        room_type: str,
+        category_id: int,
+        label: Optional[str] = None,
+    ):
         super().__init__(timeout=None)
-        self.add_item(CreateRoomButton(room_type, category_id))
+        self.add_item(CreateRoomButton(room_type, category_id, label))
+
+
+class MenuTextModal(_BaseModal):
+    """
+    /create_vc_menu の customize:True 用。作成メニューの見出し・案内文・
+    ボタン文言を入力させる（すべて任意、空欄なら従来どおりボタンのみ）。
+    趣味部屋・作業部屋のように、同じ部屋種別でもカテゴリごとに
+    案内を変えたいときに使う。
+    """
+
+    def __init__(
+        self,
+        cog: "RainbowlPrivateRooms",
+        room_type: app_commands.Choice[str],
+        category: discord.CategoryChannel,
+    ):
+        super().__init__(title="作成メニューの文言")
+        self.cog = cog
+        self.room_type = room_type
+        self.category = category
+
+        self.title_input = discord.ui.TextInput(
+            label="見出し（任意）",
+            placeholder="例：🎨 趣味部屋をつくる",
+            required=False,
+            max_length=256,
+        )
+        self.description_input = discord.ui.TextInput(
+            label="案内文（任意）",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=4000,
+        )
+        self.button_label_input = discord.ui.TextInput(
+            label="ボタンの文言（空欄で種別ごとのデフォルト）",
+            placeholder="例：🎨 趣味部屋をつくる",
+            required=False,
+            max_length=80,
+        )
+        self.add_item(self.title_input)
+        self.add_item(self.description_input)
+        self.add_item(self.button_label_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await self.cog._post_create_menu(
+            interaction,
+            self.room_type,
+            self.category,
+            title=self.title_input.value.strip(),
+            description=self.description_input.value.strip(),
+            button_label=self.button_label_input.value.strip(),
+        )
 
 
 class DeleteOwnRoomButton(discord.ui.Button):
@@ -999,6 +1064,7 @@ class RainbowlPrivateRooms(commands.Cog):
                         CreateRoomButtonView(
                             menu["room_type"],
                             int(menu["category_id"]),
+                            menu.get("button_label"),
                         )
                     )
                 except Exception as exc:
@@ -1283,7 +1349,9 @@ class RainbowlPrivateRooms(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(
-        room_type="部屋の種別", category="作成先カテゴリ"
+        room_type="部屋の種別",
+        category="作成先カテゴリ",
+        customize="見出し・案内文・ボタンの文言を入力する（趣味部屋・作業部屋など）",
     )
     @app_commands.choices(
         room_type=[
@@ -1296,8 +1364,30 @@ class RainbowlPrivateRooms(commands.Cog):
         interaction: discord.Interaction,
         room_type: app_commands.Choice[str],
         category: discord.CategoryChannel,
+        customize: bool = False,
     ) -> None:
+        if customize:
+            # モーダルは最初の応答でしか出せないため、deferもDB問い合わせも
+            # せずに即表示する。rainbowl判定・重複チェックは送信後に行う。
+            await interaction.response.send_modal(
+                MenuTextModal(self, room_type, category)
+            )
+            return
+
         await interaction.response.defer(ephemeral=True, thinking=True)
+        await self._post_create_menu(interaction, room_type, category)
+
+    async def _post_create_menu(
+        self,
+        interaction: discord.Interaction,
+        room_type: app_commands.Choice[str],
+        category: discord.CategoryChannel,
+        *,
+        title: str = "",
+        description: str = "",
+        button_label: str = "",
+    ) -> None:
+        """呼び出し側は必ず先に interaction.response.defer() していること。"""
         if not await self._require_rainbowl(interaction):
             return
 
@@ -1327,8 +1417,19 @@ class RainbowlPrivateRooms(commands.Cog):
             )
             return
 
+        embed = None
+        if title or description:
+            embed = discord.Embed(
+                title=title or None,
+                description=description or None,
+                color=discord.Color.blurple(),
+            )
+
         message = await interaction.channel.send(
-            view=CreateRoomButtonView(room_type.value, category.id),
+            embed=embed,
+            view=CreateRoomButtonView(
+                room_type.value, category.id, button_label or None
+            ),
         )
 
         added = await private_room_service.add_menu(
@@ -1337,6 +1438,7 @@ class RainbowlPrivateRooms(commands.Cog):
             category.id,
             interaction.channel_id,
             message.id,
+            button_label=button_label,
         )
         if not added:
             await message.delete()
@@ -1394,6 +1496,8 @@ class RainbowlPrivateRooms(commands.Cog):
             room_type_label = private_room_service.ROOM_TYPE_DISPLAY_NAMES.get(
                 menu.get("room_type"), menu.get("room_type")
             )
+            if menu.get("button_label"):
+                room_type_label += f"（{menu['button_label']}）"
             lines.append(
                 f"・{room_type_label} / "
                 f"{category.mention if category else menu['category_id']}"
