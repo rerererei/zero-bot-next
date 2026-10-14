@@ -3,10 +3,11 @@
 プライベートルーム機能の権限（チャンネル個別上書き）まわり。
 
 方針（プライベートルーム機能.md 6章・33章）:
-- @everyone: プライベート系は「チャンネルを見る」を拒否。
-  パブリック系（招待制ではない部屋）は逆に「チャンネルを見る・VCへ接続」
-  を明示許可する（PUBLIC_EVERYONE_OVERWRITE）。呼び出し側が
-  部屋種別に応じてどちらを使うか選ぶ。
+- @everyone: 全種別で「チャンネルを見る」を拒否。
+- 入会済みロール（新人・member）: パブリック系（招待制ではない部屋）のみ
+  「チャンネルを見る・VCへ接続」を明示許可する（PUBLIC_ROLE_OVERWRITE）。
+  @everyoneへ許可すると入場者・申請中など入会前の人にも見えてしまうため、
+  ロール単位で許可する。どのロールに付けるかは呼び出し側が決める。
 - 作成者・招待ユーザー: 閲覧・接続・発言・VCインチャ投稿/履歴のみ明示許可。
   管理系権限（チャンネル管理・権限管理・移動/ミュート等）は付与しない。
 - Bot: チャンネル管理・権限管理ができるよう明示許可。
@@ -20,13 +21,14 @@
 Bot自身の修復編集がまた変更イベントを発火させて無限ループになる
 心配もない。
 
-このシステムが個別に上書きを作るのは @everyone・作成者・招待ユーザー・
-Bot自身の4種類のみ。したがって、ロール上書きは@everyone以外一切触れず、
+このシステムが個別に上書きを作るのは @everyone・入会済みロール・作成者・
+招待ユーザー・Bot自身の5種類のみ。したがって、ロール上書きは
+@everyone・入会済みロール以外一切触れず、
 それ以外のメンバー個別上書き（解除済みユーザーの残存分・管理外の不明な
 個別ユーザー権限）は無条件で削除してよい、という判定にしている。
 """
 
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
 
 import discord
 
@@ -43,8 +45,9 @@ _MANAGED_FIELDS = (
 
 EVERYONE_OVERWRITE = discord.PermissionOverwrite(view_channel=False)
 
-# パブリック系（招待制ではない）部屋用。誰でも見える・入れるようにする。
-PUBLIC_EVERYONE_OVERWRITE = discord.PermissionOverwrite(
+# パブリック系（招待制ではない）部屋用。入会済みロールに付けて、
+# 入会した人なら誰でも見える・入れるようにする。
+PUBLIC_ROLE_OVERWRITE = discord.PermissionOverwrite(
     view_channel=True, connect=True
 )
 
@@ -69,13 +72,16 @@ def build_expected_overwrites(
     owner_id: int,
     invited_user_ids: Iterable[str],
     bot_member: discord.Member,
-    everyone_overwrite: discord.PermissionOverwrite = EVERYONE_OVERWRITE,
+    role_overwrites: Optional[
+        Dict[discord.Role, discord.PermissionOverwrite]
+    ] = None,
 ) -> Dict[discord.abc.Snowflake, discord.PermissionOverwrite]:
     """このルームで本来あるべき権限上書きの全体を組み立てる。"""
     expected: Dict[discord.abc.Snowflake, discord.PermissionOverwrite] = {
-        guild.default_role: everyone_overwrite,
+        guild.default_role: EVERYONE_OVERWRITE,
         bot_member: BOT_OVERWRITE,
     }
+    expected.update(role_overwrites or {})
 
     owner = guild.get_member(owner_id)
     if owner is not None:
@@ -113,7 +119,9 @@ async def apply_room_permissions(
     bot_member: discord.Member,
     *,
     reason: str,
-    everyone_overwrite: discord.PermissionOverwrite = EVERYONE_OVERWRITE,
+    role_overwrites: Optional[
+        Dict[discord.Role, discord.PermissionOverwrite]
+    ] = None,
 ) -> List[str]:
     """
     期待される権限状態との差分だけを実際に編集する。
@@ -121,7 +129,7 @@ async def apply_room_permissions(
     戻り値: 実際に変更した内容の説明（操作ログ用）。空リストなら無変更。
     """
     expected = build_expected_overwrites(
-        guild, owner_id, invited_user_ids, bot_member, everyone_overwrite
+        guild, owner_id, invited_user_ids, bot_member, role_overwrites
     )
     changed: List[str] = []
 

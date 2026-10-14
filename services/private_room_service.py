@@ -12,7 +12,8 @@ Cog（cogs/rainbowl_private_rooms.py）はDiscordイベント・インタラク�
 パブリック系はプライベート系から「招待制」を外しただけの版）。
 削除・自動修復・ルームメニューの操作権限チェック等の挙動は全種別共通。
 異なるのは作成フロー（人数入力／相手を1人選ぶ／どちらも無し）と、
-@everyoneへの権限（プライベート系は拒否・パブリック系は許可）のみ。
+入会済みロール（新人・member）への閲覧・接続許可の有無
+（プライベート系は無し・パブリック系は有り。@everyoneは全種別で拒否）のみ。
 
 rainbowl専用機能であることのゲートは、既存rainbowl系Cogと同じく
 guild_config["rainbowl"]の有無で判定する（ハードコードのギルドIDは使わない）。
@@ -30,7 +31,7 @@ RainbowlGuildConfig（rainbowl_config_service.py）には追加しない
   招待した相手が入室できなくなる事故が起きるため。
 - 33章「権限の自動修復」: services/private_room_permissions.py 参照。
   @everyone・作成者・招待ユーザー・Bot以外の個別メンバー上書きのみ削除対象とし、
-  ロール上書きには一切触れない。
+  @everyone・入会済みロール以外のロール上書きには一切触れない。
 """
 
 import asyncio
@@ -47,7 +48,7 @@ from services.private_room_permissions import (
     BOT_OVERWRITE,
     EVERYONE_OVERWRITE,
     MEMBER_OVERWRITE,
-    PUBLIC_EVERYONE_OVERWRITE,
+    PUBLIC_ROLE_OVERWRITE,
     apply_room_permissions,
 )
 from utils.room_text_validation import (
@@ -62,7 +63,7 @@ ROOM_TYPE_PRIVATE_SOLO = "PRIVATE_SOLO"
 ROOM_TYPE_PUBLIC_MEETING = "PUBLIC_MEETING"
 ROOM_TYPE_PUBLIC_SOLO = "PUBLIC_SOLO"
 
-# 招待制ではない（@everyoneに閲覧・接続を許可する）部屋種別。
+# 招待制ではない（入会済みロールに閲覧・接続を許可する）部屋種別。
 PUBLIC_ROOM_TYPES = {ROOM_TYPE_PUBLIC_MEETING, ROOM_TYPE_PUBLIC_SOLO}
 
 # 相手を選ばず「作成者+相手1人」固定の部屋種別（個室系）。
@@ -91,14 +92,42 @@ def is_solo_room_type(room_type: str) -> bool:
     return room_type in SOLO_ROOM_TYPES
 
 
-def everyone_overwrite_for_room_type(
-    room_type: str,
-) -> discord.PermissionOverwrite:
-    return (
-        PUBLIC_EVERYONE_OVERWRITE
-        if is_public_room_type(room_type)
-        else EVERYONE_OVERWRITE
-    )
+# パブリック系の部屋を見せる「入会済み」のロール。
+# 新人→memberは付け替え（新人は外れる）なので、両方に許可する。
+PUBLIC_ACCESS_ROLE_KEYS = ("newcomer_role_id", "member_role_id")
+
+
+def _get_public_access_roles(guild: discord.Guild) -> List[discord.Role]:
+    cfg = _load_full_config(guild.id)
+    rainbowl_cfg = cfg.get("rainbowl")
+    if not isinstance(rainbowl_cfg, dict):
+        return []
+
+    roles: List[discord.Role] = []
+    for key in PUBLIC_ACCESS_ROLE_KEYS:
+        try:
+            role = guild.get_role(int(rainbowl_cfg.get(key)))
+        except (TypeError, ValueError):
+            role = None
+        if role is None:
+            print(
+                f"[private_room] 入会済みロールが見つかりません: "
+                f"guild={guild.id} key={key}"
+            )
+            continue
+        roles.append(role)
+    return roles
+
+
+async def role_overwrites_for_room_type(
+    guild: discord.Guild, room_type: str
+) -> Dict[discord.Role, discord.PermissionOverwrite]:
+    """部屋種別に応じて、ロール単位で付ける権限上書きを返す。"""
+    if not is_public_room_type(room_type):
+        return {}
+
+    roles = await asyncio.to_thread(_get_public_access_roles, guild)
+    return {role: PUBLIC_ROLE_OVERWRITE for role in roles}
 
 
 # 個室系は「作成者+相手1人」固定。人数変更メニューからは
@@ -631,10 +660,9 @@ async def create_room(
                 initial_invitees.append(resolved)
 
         overwrites = {
-            guild.default_role: everyone_overwrite_for_room_type(
-                room_type
-            ),
+            guild.default_role: EVERYONE_OVERWRITE,
             guild.me: BOT_OVERWRITE,
+            **await role_overwrites_for_room_type(guild, room_type),
             member: MEMBER_OVERWRITE,
         }
         for invitee in initial_invitees:
@@ -1221,8 +1249,8 @@ async def invite_users(
             invited_ids_after,
             guild.me,
             reason=f"{member} によるユーザー招待",
-            everyone_overwrite=everyone_overwrite_for_room_type(
-                room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
+            role_overwrites=await role_overwrites_for_room_type(
+                guild, room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
             ),
         )
         await channel.edit(
@@ -1305,8 +1333,8 @@ async def uninvite_user(
                 room.get("invited_user_ids") or [],
                 guild.me,
                 reason=f"{member} による招待解除",
-                everyone_overwrite=everyone_overwrite_for_room_type(
-                    room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
+                role_overwrites=await role_overwrites_for_room_type(
+                    guild, room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
                 ),
             )
 
@@ -1362,8 +1390,8 @@ async def finalize_pending_removal(
             room.get("invited_user_ids") or [],
             guild.me,
             reason="招待解除待ちユーザーの退出による権限確定",
-            everyone_overwrite=everyone_overwrite_for_room_type(
-                room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
+            role_overwrites=await role_overwrites_for_room_type(
+                guild, room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
             ),
         )
 
@@ -1420,8 +1448,8 @@ async def repair_room_permissions(
         room.get("invited_user_ids") or [],
         guild.me,
         reason="権限の自動修復",
-        everyone_overwrite=everyone_overwrite_for_room_type(
-            room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
+        role_overwrites=await role_overwrites_for_room_type(
+            guild, room.get("room_type", ROOM_TYPE_PRIVATE_MEETING)
         ),
     )
 
