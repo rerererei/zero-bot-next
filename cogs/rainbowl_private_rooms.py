@@ -305,6 +305,8 @@ class CreateRoomButtonView(_BaseView):
     ):
         super().__init__(timeout=None)
         self.add_item(CreateRoomButton(room_type, category_id, label))
+        # 削除ボタンは作成メニューごとに横へ並べる（custom_idは全メニュー共通）。
+        self.add_item(DeleteOwnRoomButton())
 
 
 class MenuTextModal(_BaseModal):
@@ -1072,6 +1074,44 @@ class RainbowlPrivateRooms(commands.Cog):
                         "[private_room] 作成ボタンView再登録失敗"
                         f" guild_id={guild.id} error={exc}"
                     )
+                    continue
+
+                await self._ensure_menu_delete_button(guild, menu)
+
+    async def _ensure_menu_delete_button(
+        self, guild: discord.Guild, menu: dict
+    ) -> None:
+        """
+        削除ボタン追加前に設置された作成メニューへ、削除ボタンを後付けする。
+        既に付いていれば何もしない（起動のたびに編集し直さない）。
+        """
+        channel = guild.get_channel(int(menu["menu_channel_id"]))
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        try:
+            message = await channel.fetch_message(int(menu["message_id"]))
+            has_delete_button = any(
+                getattr(child, "custom_id", None) == DELETE_BUTTON_CUSTOM_ID
+                for row in message.components
+                for child in getattr(row, "children", [])
+            )
+            if has_delete_button:
+                return
+
+            await message.edit(
+                view=CreateRoomButtonView(
+                    menu["room_type"],
+                    int(menu["category_id"]),
+                    menu.get("button_label"),
+                )
+            )
+        except discord.HTTPException as exc:
+            print(
+                "[private_room] 作成メニューへの削除ボタン追加失敗"
+                f" guild_id={guild.id} message_id={menu.get('message_id')}"
+                f" error={exc}"
+            )
 
     # ========================================
     # ボイス状態変化：無人タイマー・解除待ちの確定
