@@ -446,6 +446,61 @@ def build_preview_csv(evaluations: List[MemberEvaluation]) -> str:
     return buffer.getvalue()
 
 
+async def start_test_review(
+    guild: discord.Guild,
+    rb_config: RainbowlGuildConfig,
+    config: ActivityReviewConfig,
+    member: discord.Member,
+    minutes: int,
+) -> Optional[datetime]:
+    """
+    /activity_review_test：指定した1人だけについて、毎月1日の処理を本番と同じ流れで行う
+    （スコア・除外条件は見ない）。確認期限は実行時点からminutes分後。
+    期限後の締め（残留確認・キック・チャンネル削除）は通常どおり日次バッチ
+    （/zbadmin run_daily_batch で即時実行可）が行う。
+    対象月は今月扱い（/kick_is_enabled の今月の設定が締めの時に反映される）。
+
+    開始できた場合は確認期限を、既に進行中の在籍確認がある場合はNoneを返す。
+    """
+    now = datetime.now(JST)
+    target_month = month_of(now.date())
+    deadline = now.replace(second=0, microsecond=0) + timedelta(minutes=minutes)
+
+    state = await asyncio.to_thread(_member_store.get_item, guild.id, member.id)
+    if state.get("current_review"):
+        return None
+
+    scores, applicant = await asyncio.gather(
+        asyncio.to_thread(_collect_scores, guild.id, target_month),
+        asyncio.to_thread(_applicants_store.get_item, guild.id, member.id),
+    )
+    text_xp, vc_xp = scores.get(member.id, (0.0, 0.0))
+
+    await _start_review(
+        guild,
+        member,
+        config,
+        staff_role_id=rb_config.staff_role_id,
+        target_month=target_month,
+        text_xp=text_xp,
+        vc_xp=vc_xp,
+        prev_score=0.0,
+        joined=_newcomer_at(applicant),
+        deadline=deadline,
+        now=now,
+        is_test=True,
+    )
+    await asyncio.to_thread(
+        _member_store.set_review_fields,
+        guild.id,
+        member.id,
+        target_month,
+        {"is_test": True},
+        datetime.now(JST).isoformat(),
+    )
+    return deadline
+
+
 async def run_monthly_review(
     guild: discord.Guild,
     rb_config: RainbowlGuildConfig,
@@ -575,6 +630,7 @@ async def _start_review(
     joined: Optional[datetime],
     deadline: datetime,
     now: datetime,
+    is_test: bool = False,
 ) -> bool:
     """
     1人分の在籍確認サイクルを開始する。途中で失敗して再実行された場合も、
@@ -643,6 +699,7 @@ async def _start_review(
                     prev_score=prev_score,
                     joined=joined,
                     deadline=deadline,
+                    is_test=is_test,
                 ),
                 view=_retain_view(member.id, target_month),
             )
@@ -702,9 +759,10 @@ def _build_staff_embed(
     prev_score: float,
     joined: Optional[datetime],
     deadline: datetime,
+    is_test: bool = False,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title="活動確認対象者",
+        title=("【テスト】" if is_test else "") + "活動確認対象者",
         description=f"{member.mention}（`{member.id}`）",
         color=discord.Color.gold(),
     )

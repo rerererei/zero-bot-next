@@ -9,6 +9,9 @@ from botocore.exceptions import ClientError
 
 def _to_decimal(value):
     """Pythonの数値 → DynamoDB対応のDecimalに変換"""
+    if isinstance(value, bool):
+        # boolはintのサブクラスなので、数値として変換しないよう先に除外する
+        return value
     if isinstance(value, float) or isinstance(value, int):
         return Decimal(str(value))
     elif isinstance(value, dict):

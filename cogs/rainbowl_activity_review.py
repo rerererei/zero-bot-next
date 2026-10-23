@@ -5,6 +5,7 @@ rainbowl：月次活動整理（在籍確認）の受け口。
 - 「残留」ボタン（永続DynamicItem）の登録
 - /kick_is_enabled：月ごとの集計・キックを実行するかどうかの設定
 - /activity_review_preview：今月の実行時点の活動状況の確認（書き込み・通知は一切しない）
+- /activity_review_test：指定した1人だけで月初の在籍確認を本番と同じ流れで試す（テスト用）
 
 集計・キック本体は cogs/daily_batch.py から
 services/rainbowl_activity_review_service.py を呼び出して実行する。
@@ -21,19 +22,23 @@ from discord.ext import commands
 from services.rainbowl_config_service import (
     RainbowlConfigError,
     get_rainbowl_config,
+    is_admin_like,
 )
 from services.rainbowl_activity_review_service import (
     JST,
     MONTH_PATTERN,
     RetainButton,
     build_preview_csv,
+    deadline_label,
     default_kick_setting_month,
     format_preview_line,
     get_activity_review_config,
     is_kick_enabled,
     month_label,
+    month_of,
     preview_current_month,
     set_kick_enabled,
+    start_test_review,
 )
 
 
@@ -182,6 +187,94 @@ class RainbowlActivityReview(commands.Cog):
             summary,
             embed=pager.build_embed(),
             view=pager if pager.max_page > 0 else discord.utils.MISSING,
+        )
+
+    @app_commands.command(
+        name="activity_review_test",
+        description="指定した1人だけで月初の在籍確認を本番と同じ流れで試します（管理者専用・テスト用）",
+    )
+    @app_commands.describe(
+        target="テスト対象（キックされても困らないテスト用アカウント）",
+        minutes="確認期限（何分後か。省略時は5分）",
+    )
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def activity_review_test(
+        self,
+        interaction: discord.Interaction,
+        target: discord.Member,
+        minutes: app_commands.Range[int, 1, 1440] = 5,
+    ) -> None:
+        config = await get_activity_review_config(interaction.guild_id)
+
+        try:
+            rb_config = await get_rainbowl_config(interaction.guild_id)
+        except RainbowlConfigError:
+            rb_config = None
+
+        if config is None or rb_config is None:
+            await interaction.response.send_message(
+                "このサーバーには月次活動確認（activity_review）が設定されていません。",
+                ephemeral=True,
+            )
+            return
+
+        # Botや管理者扱いの人はキックできない（本番でも対象外）ため弾く
+        if target.bot or is_admin_like(target, rb_config):
+            await interaction.response.send_message(
+                "Bot・管理者・運営・Supporterはテスト対象にできません。"
+                "テスト用アカウントを指定してください。",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        try:
+            deadline = await start_test_review(
+                interaction.guild,
+                rb_config,
+                config,
+                target,
+                minutes,
+            )
+        except Exception as exc:
+            print(
+                "[activity_review] テスト実行に失敗しました:"
+                f" guild_id={interaction.guild_id}"
+                f" user_id={target.id} error={exc}"
+            )
+            await interaction.followup.send(
+                f"テストの開始に失敗しました：{exc}",
+                ephemeral=True,
+            )
+            return
+
+        if deadline is None:
+            await interaction.followup.send(
+                f"{target.mention} は既に在籍確認が進行中のため、テストを開始できません。",
+                ephemeral=True,
+            )
+            return
+
+        kick_enabled = await is_kick_enabled(
+            interaction.guild_id,
+            month_of(deadline.date()),
+        )
+
+        await interaction.followup.send(
+            f"{target.mention} で在籍確認のテストを開始しました。\n"
+            f"・確認期限：{deadline_label(deadline)}\n"
+            f"・確認用ロール付与／本人専用チャンネル作成／<#{config.staff_list_channel_id}> への一覧投稿を行いました\n"
+            f"・期限を過ぎたら `/zbadmin run_daily_batch` で締め処理を実行できます"
+            "（実行しなければ次の0:00に締めます）\n"
+            + (
+                "・【残留】を押さなければ、締め処理でキックされます"
+                if kick_enabled
+                else "・今月は /kick_is_enabled が無効のため、締め処理ではキックせず見送りになります"
+            ),
+            ephemeral=True,
         )
 
 
