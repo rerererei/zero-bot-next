@@ -140,7 +140,7 @@ class RainbowlActivityReview(commands.Cog):
             )
             return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(thinking=True)
 
         try:
             summary, evaluations = await preview_current_month(
@@ -155,7 +155,6 @@ class RainbowlActivityReview(commands.Cog):
             )
             await interaction.followup.send(
                 "プレビューの集計に失敗しました。",
-                ephemeral=True,
             )
             return
 
@@ -173,7 +172,6 @@ class RainbowlActivityReview(commands.Cog):
             await interaction.followup.send(
                 summary,
                 file=file,
-                ephemeral=True,
             )
             return
 
@@ -184,12 +182,11 @@ class RainbowlActivityReview(commands.Cog):
             summary,
             embed=pager.build_embed(),
             view=pager if pager.max_page > 0 else discord.utils.MISSING,
-            ephemeral=True,
         )
 
 
 class PreviewPager(discord.ui.View):
-    """/activity_review_preview のページ送り表示（実行者だけに見えるメッセージ）。"""
+    """/activity_review_preview のページ送り表示（チャンネルへ通常投稿）。"""
 
     PER_PAGE = 15
 
