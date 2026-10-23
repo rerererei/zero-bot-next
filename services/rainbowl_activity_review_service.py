@@ -780,9 +780,10 @@ async def process_retain_button(
         )
         return
 
-    if not is_admin_like(staff, rb_config):
+    # 運営周りの操作は管理者権限（Administrator）を持つ人だけ
+    if not staff.guild_permissions.administrator:
         await interaction.response.send_message(
-            "このボタンは運営専用です。", ephemeral=True
+            "このボタンは管理者専用です。", ephemeral=True
         )
         return
 

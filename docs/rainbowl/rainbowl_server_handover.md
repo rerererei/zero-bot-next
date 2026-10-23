@@ -646,7 +646,7 @@ VC：30.0
 
 ### 残留処理
 
-運営（Administrator権限・運営ロール・`admin_role_ids`のロールのいずれかを持つ人）が「残留」ボタンを押すと、以下を行う。
+管理者（Administrator権限を持つ人）が「残留」ボタンを押すと、以下を行う。
 
 - キックフラグをOFF（`membership_status = ACTIVE`、サイクルの状態を`RETAINED`に）
 - 確認用ロールを削除
