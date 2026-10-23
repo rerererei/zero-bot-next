@@ -16,13 +16,21 @@
 - [ ] **本番サーバーでの実機動作確認（[起動後チェックリスト.md](./起動後チェックリスト.md)）**
   コードは実装済み・構文チェック済みだが、実際にDiscord上で入場〜次へ〜入会申請〜プロフィール提出〜受付〜`/ok`/`/ng`まで一通り動かした確認はまだ行っていない。
 
-- [ ] **プロフィール未提出3日自動キックの日次バッチ**
-  仕様としては確定済み（`APPLIED`のまま`applied_at`から3日経過・`profile_message_id`未登録で自動キック）だが、バッチ本体は未実装。実行基盤の技術方針は決定済み（`rainbowl_server_handover.md`12章：cronは使わず、常駐Bot内の`tasks.loop`で日次バッチ用Cog（例：`cogs/daily_batch.py`）にまとめて実装する）。この自動キックと11章の月次活動整理を同じCogにまとめて実装する。
+- [x] **プロフィール未提出3日自動キックの日次バッチ**（2026-10-23）
+  [cogs/daily_batch.py](../../cogs/daily_batch.py)を新設（JST 0:00の`tasks.loop`＋Bot起動直後に1回の追いつき実行）。処理本体は`services/rainbowl_onboarding_service.py`の`process_profile_missing_auto_kick`。`APPLIED`のまま`applied_at`から3日経過・`profile_message_id`未登録の人を、条件付き書き込み（status=APPLIED・profile未登録・applied_atが判定時と一致）でREJECTEDにしてからキック→本人専用チャンネル削除→合否記録チャンネルへ投稿。既に退出済みの人はキックせず、チャンネル削除と記録のみ行う。手動リトライ用に`/zbadmin run_daily_batch`を追加。
 
-- [ ] **月次活動整理（11章）の集計バッチ本体は未着手**
-  データ層（日次テキスト活動の記録、月次処理済みガード、メンバーごとの継続状態管理）のみ先行実装済み。集計処理そのものを書くには、まだ以下が未決定・未実装：
-  - 活動量の計算式／テキストとVCの配点／月間の最低活動基準（20章に記載の未決定事項）
-  - 特別除外ロールの設定場所（`guild_config`への新namespace化を想定するが未確定）
+- [x] **月次活動確認（11章）の集計・期限キック本体を実装**（2026-10-24）
+  仕様確定：スコア＝rainbowl VC XP＋テキストXP、基準60XP、毎月1日集計→7日間確認→8日0:00キック、確認用ロール（黄色）、新人になって2週間未満は対象外、運営ボタンは「残留」のみ、`/kick_is_enabled`で月ごとに無効化できる（無効の月は翌月1日の集計自体を行わず、8日のキックも無い。設定は毎月9日〜月末に行う運用）。今月の実行時点の活動状況は`/activity_review_preview`で確認できる（本番とは無関係・書き込みなし）。2026年11月分から開始。詳細は`rainbowl_server_handover.md`11章・12章。
+  実装：[services/rainbowl_activity_review_service.py](../../services/rainbowl_activity_review_service.py)、[cogs/rainbowl_activity_review.py](../../cogs/rainbowl_activity_review.py)、[cogs/daily_batch.py](../../cogs/daily_batch.py)へジョブ追加。VC日次テーブルに`xp_total`、応募者テーブルに`newcomer_at`を記録開始。
+
+- [x] **`activity_review`設定のDB投入**（2026-10-24）
+  [scripts/rainbowl/setup_activity_review_config.py](../../scripts/rainbowl/setup_activity_review_config.py)で`zero_bot_guild_config`へ投入済み（他の名前空間が残っていることも確認済み）。
+
+- [ ] **月次活動確認のDiscord側の権限確認**
+  Botのロールが確認用ロール（`1563222899257647185`）より上にあること（ロール付与に必要）、およびキック対象になりうる「新人」「member」より上にあること。個別連絡カテゴリー（`1563222164906319913`）でBotがチャンネル作成・削除できること。
+
+- [ ] **休止申請・個別除外の登録手段が無い**
+  データ層（`member_state`の`pause`/`exempt`）のみ。現状はDBを直接編集する必要がある。必要になったらコマンド化する（特別除外ロール`activity_review.exempt_role_ids`で代用も可）。
 
 - [ ] **入会後プロフィール（`data/rainbowl/member_state_store.py`の`initial_profile`/`current_profile`）の記入・編集フローが未設計**
   データ層は用意済みだが、Botへの投稿方法・編集検知の仕組み（面接用プロフィールの`profile_message_id`方式を踏襲するか等）は別機能として別途設計する。

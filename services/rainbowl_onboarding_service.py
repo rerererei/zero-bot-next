@@ -15,7 +15,10 @@ import discord
 
 from data.rainbowl.applicants_store import RainbowlStore
 from services import rainbowl_texts
-from services.rainbowl_config_service import RainbowlGuildConfig
+from services.rainbowl_config_service import (
+    RainbowlGuildConfig,
+    is_admin_like,
+)
 from utils.helpers import normalize_text_channel_name
 
 
@@ -1181,4 +1184,162 @@ async def _delete_applicant_channel(
             "[rainbowl] 本人専用チャンネルの削除に失敗しました"
             f" guild_id={guild.id} user_id={user_id}"
             f" error={exc}"
+        )
+
+
+PROFILE_DEADLINE = timedelta(days=3)
+
+PROFILE_MISSING_REASON = (
+    "自動キック：入会申請から3日以内に"
+    "プロフィールが提出されなかったため"
+)
+
+
+async def process_profile_missing_auto_kick(
+    guild: discord.Guild,
+    config: RainbowlGuildConfig,
+    client: discord.Client,
+) -> int:
+    """
+    日次バッチ：statusがAPPLIEDのままapplied_atから3日経過し、
+    profile_message_idが未登録の応募者を自動キックする。
+
+    挙動は`/ng`と同様（status = REJECTED、本人専用チャンネルを即時削除、
+    合否記録チャンネルへ投稿）。DB更新は条件付き書き込みで行うため、
+    運営の承認操作と競合した場合や、再実行時は対象外になる。
+    処理した人数を返す。
+    """
+    now = datetime.now(JST)
+
+    items = await asyncio.to_thread(
+        store.list_applied,
+        guild.id,
+    )
+
+    processed = 0
+
+    for item in items:
+        applied_at = item.get("applied_at")
+
+        if not applied_at or item.get("profile_message_id"):
+            continue
+
+        try:
+            applied_dt = datetime.fromisoformat(applied_at)
+        except ValueError:
+            print(
+                "[rainbowl] applied_atの形式が不正です"
+                f" guild_id={guild.id}"
+                f" user_id={item.get('user_id')}"
+                f" applied_at={applied_at}"
+            )
+            continue
+
+        if now - applied_dt < PROFILE_DEADLINE:
+            continue
+
+        user_id = int(item["user_id"])
+        member = guild.get_member(user_id)
+
+        # 運営・管理者（と同様に扱うロール）は対象外。DBも変更しない
+        if member is not None and is_admin_like(member, config):
+            continue
+
+        success = await asyncio.to_thread(
+            store.set_rejected_profile_missing,
+            guild.id,
+            user_id,
+            applied_at,
+            PROFILE_MISSING_REASON,
+            now.isoformat(),
+        )
+
+        if not success:
+            continue
+
+        # 既に退出済みの場合はキックせず、チャンネル削除と記録のみ行う
+        target: Optional[discord.abc.User] = member
+
+        if member is not None:
+            try:
+                await member.kick(
+                    reason="rainbowl: プロフィール未提出（3日経過）"
+                )
+            except discord.HTTPException as exc:
+                print(
+                    "[rainbowl] 自動キックに失敗しました"
+                    f" guild_id={guild.id} user_id={user_id}"
+                    f" error={exc}"
+                )
+        else:
+            try:
+                target = await client.fetch_user(user_id)
+            except discord.HTTPException:
+                target = None
+
+        await _delete_applicant_channel(
+            guild,
+            user_id,
+            reason="rainbowl: プロフィール未提出につき即時削除",
+        )
+
+        await _post_auto_kick_record(
+            guild,
+            config,
+            target,
+            user_id,
+        )
+
+        processed += 1
+
+    return processed
+
+
+async def _post_auto_kick_record(
+    guild: discord.Guild,
+    config: RainbowlGuildConfig,
+    target: Optional[discord.abc.User],
+    user_id: int,
+) -> None:
+    """自動キックの記録を合否記録チャンネルへ投稿する。"""
+    review_results_channel = guild.get_channel(
+        config.review_results_channel_id
+    )
+
+    if review_results_channel is None:
+        print(
+            "[rainbowl] 合否記録チャンネルを"
+            f"取得できません guild_id={guild.id}"
+        )
+        return
+
+    if target is not None:
+        embed = build_verdict_embed(
+            target,
+            False,
+            PROFILE_MISSING_REASON,
+        )
+    else:
+        embed = discord.Embed(
+            title="❌ 不合格",
+            color=discord.Color.red(),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(
+            name="ユーザーID",
+            value=f"`{user_id}`",
+            inline=True,
+        )
+        embed.add_field(
+            name="理由",
+            value=PROFILE_MISSING_REASON,
+            inline=False,
+        )
+
+    try:
+        await review_results_channel.send(embed=embed)
+    except discord.HTTPException as exc:
+        print(
+            "[rainbowl] 自動キック記録の投稿に失敗しました"
+            f" guild_id={guild.id} error={exc}"
         )

@@ -60,6 +60,12 @@ class ZeroBot(commands.Bot):
             # rainbowl（プライベートルーム機能）
             "cogs.rainbowl_private_rooms",
 
+            # rainbowl（月次活動確認：残留ボタン・/kick_is_enabled）
+            "cogs.rainbowl_activity_review",
+
+            # 日次バッチ（JST 0:00）
+            "cogs.daily_batch",
+
         ]
 
         for ext in extensions:

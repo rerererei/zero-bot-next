@@ -139,3 +139,48 @@ class ActivityReviewStore:
         )
         item = resp.get("Item")
         return _from_decimal(item) if item else None
+
+    # =============================
+    #    月ごとのキック実行可否（/kick_is_enabled）
+    # =============================
+    def _kick_setting_key(
+        self,
+        guild_id: int,
+        target_month: str,
+    ) -> Dict[str, str]:
+        return {
+            "guild_id": str(guild_id),
+            "sort_key": f"KICK_SETTING#{target_month}",
+        }
+
+    def get_kick_setting(
+        self,
+        guild_id: int,
+        target_month: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        対象月のキック実行可否の設定を返す（未設定ならNone）。
+        未設定の月はキック有効として扱う（呼び出し側で判断）。
+        """
+        resp = self.table.get_item(
+            Key=self._kick_setting_key(guild_id, target_month)
+        )
+        item = resp.get("Item")
+        return _from_decimal(item) if item else None
+
+    def set_kick_setting(
+        self,
+        guild_id: int,
+        target_month: str,
+        enabled: bool,
+        updated_by: int,
+        now_iso: str,
+    ) -> None:
+        """対象月のキック実行可否を設定する（無条件で上書き）。"""
+        self.table.put_item(
+            Item=self._kick_setting_key(guild_id, target_month) | {
+                "enabled": enabled,
+                "updated_by": str(updated_by),
+                "updated_at": now_iso,
+            },
+        )

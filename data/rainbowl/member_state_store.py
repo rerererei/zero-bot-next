@@ -1,7 +1,7 @@
 # data/rainbowl/member_state_store.py
 
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -388,7 +388,8 @@ class MemberStateStore:
         current_reviewをreview_historyへアーカイブし、current_reviewを
         削除、membership_statusを更新する。
 
-        decisionには "RETAINED" / "KICKED" / "CANCELLED" / "ERROR" 等を渡す。
+        decisionには "RETAINED" / "KICKED" / "CANCELLED" / "LEFT" 等を渡す
+        （KICKED以外はmembership_statusをACTIVEに戻す）。
         成功した場合はTrue、進行中のサイクルが無い場合はFalseを返す。
         """
         current_item = self.get_item(guild_id, user_id)
@@ -408,7 +409,7 @@ class MemberStateStore:
         }
 
         next_membership_status = (
-            "ACTIVE" if decision == "RETAINED" else "KICKED"
+            "KICKED" if decision == "KICKED" else "ACTIVE"
         )
 
         try:
@@ -428,6 +429,174 @@ class MemberStateStore:
                     ":new_entry": _to_decimal([history_entry]),
                     ":next_status": next_membership_status,
                     ":now": now_iso,
+                },
+            )
+            return True
+
+        except ClientError as exc:
+            if (
+                exc.response["Error"]["Code"]
+                == "ConditionalCheckFailedException"
+            ):
+                return False
+            raise
+
+    # =============================
+    #    月次在籍確認：日次バッチ・残留ボタン用
+    # =============================
+    def list_reviews_in_progress(
+        self,
+        guild_id: int,
+    ) -> List[Dict[str, Any]]:
+        """ギルド内でcurrent_reviewを持つ（在籍確認サイクル進行中の）レコードを全件返す。"""
+        items: List[Dict[str, Any]] = []
+        query_kwargs: Dict[str, Any] = {
+            "KeyConditionExpression": "guild_id = :guild_id",
+            "FilterExpression": "attribute_exists(current_review)",
+            "ExpressionAttributeValues": {
+                ":guild_id": str(guild_id),
+            },
+        }
+
+        while True:
+            resp = self.table.query(**query_kwargs)
+            items.extend(
+                _from_decimal(item)
+                for item in resp.get("Items", [])
+            )
+
+            last_key = resp.get("LastEvaluatedKey")
+
+            if not last_key:
+                return items
+
+            query_kwargs["ExclusiveStartKey"] = last_key
+
+    def set_review_fields(
+        self,
+        guild_id: int,
+        user_id: int,
+        target_month: str,
+        fields: Dict[str, Any],
+        now_iso: str,
+    ) -> bool:
+        """
+        進行中サイクル（target_monthが一致するもの）のcurrent_reviewへ
+        フィールドを追記する（review_channel_id・staff_message_id等）。
+
+        成功した場合はTrue、対象サイクルが無い場合はFalseを返す。
+        """
+        names = {"#review": "current_review"}
+        values: Dict[str, Any] = {
+            ":target_month": target_month,
+            ":now": now_iso,
+        }
+        assignments = []
+
+        for i, (name, value) in enumerate(fields.items()):
+            names[f"#f{i}"] = name
+            values[f":v{i}"] = _to_decimal(value)
+            assignments.append(f"#review.#f{i} = :v{i}")
+
+        try:
+            self.table.update_item(
+                Key=self._key(guild_id, user_id),
+                UpdateExpression=(
+                    "SET " + ", ".join(assignments)
+                    + ", updated_at = :now"
+                ),
+                ConditionExpression=(
+                    "#review.target_month = :target_month"
+                ),
+                ExpressionAttributeNames=names,
+                ExpressionAttributeValues=values,
+            )
+            return True
+
+        except ClientError as exc:
+            if (
+                exc.response["Error"]["Code"]
+                == "ConditionalCheckFailedException"
+            ):
+                return False
+            raise
+
+    def mark_review_retained(
+        self,
+        guild_id: int,
+        user_id: int,
+        target_month: str,
+        retained_by: int,
+        now_iso: str,
+    ) -> bool:
+        """
+        運営の「残留」ボタン。進行中サイクルがPENDINGで、確認期限前の場合のみ
+        RETAINEDにし、membership_statusをACTIVEに戻す。
+        サイクル自体のアーカイブ（review_historyへの移動）と本人専用チャンネルの
+        削除は、確認期限の日次バッチでまとめて行う。
+
+        成功した場合はTrue、既に処理済み・期限切れの場合はFalseを返す。
+        """
+        try:
+            self.table.update_item(
+                Key=self._key(guild_id, user_id),
+                UpdateExpression=(
+                    "SET current_review.#status = :retained, "
+                    "current_review.retained_by = :by, "
+                    "current_review.retained_at = :now, "
+                    "membership_status = :active, "
+                    "updated_at = :now"
+                ),
+                ConditionExpression=(
+                    "current_review.target_month = :target_month"
+                    " AND current_review.#status = :pending"
+                    " AND current_review.confirm_deadline > :now"
+                ),
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":retained": "RETAINED",
+                    ":pending": "PENDING",
+                    ":active": "ACTIVE",
+                    ":target_month": target_month,
+                    ":by": str(retained_by),
+                    ":now": now_iso,
+                },
+            )
+            return True
+
+        except ClientError as exc:
+            if (
+                exc.response["Error"]["Code"]
+                == "ConditionalCheckFailedException"
+            ):
+                return False
+            raise
+
+    def claim_review_kick(
+        self,
+        guild_id: int,
+        user_id: int,
+        target_month: str,
+    ) -> bool:
+        """
+        確認期限切れのキック直前に、サイクルがまだPENDINGであることを
+        条件付きで確かめてKICKINGにする（残留ボタンとの競合防止）。
+
+        成功した場合はTrue、既に残留確定などで対象外の場合はFalseを返す。
+        """
+        try:
+            self.table.update_item(
+                Key=self._key(guild_id, user_id),
+                UpdateExpression="SET current_review.#status = :kicking",
+                ConditionExpression=(
+                    "current_review.target_month = :target_month"
+                    " AND current_review.#status = :pending"
+                ),
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":kicking": "KICKING",
+                    ":pending": "PENDING",
+                    ":target_month": target_month,
                 },
             )
             return True

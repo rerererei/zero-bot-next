@@ -189,6 +189,7 @@ class RainbowlVoiceLeveling(commands.Cog):
                             mid_group_min=mid,
                             big_group_min=big,
                             muted_min=muted,
+                            xp=xp,
                         )
                     except Exception as e:
                         print(f"[RainbowlVoiceLeveling] add_daily_voice_minutes error: {e}")

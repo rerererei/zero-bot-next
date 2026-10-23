@@ -944,6 +944,41 @@ class ZBAdmin(commands.Cog):
 
         await interaction.followup.send(embed=embed)
 
+    # ------------------------
+    # /zbadmin run_daily_batch
+    # ------------------------
+    @zbadmin.command(
+        name="run_daily_batch",
+        description="日次バッチを今すぐ実行（管理者専用・失敗時の手動リトライ用）"
+    )
+    async def run_daily_batch(self, interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "このコマンドは **管理者専用** だよ。",
+                ephemeral=True
+            )
+            return
+
+        cog = self.bot.get_cog("DailyBatch")
+        if cog is None:
+            await interaction.response.send_message(
+                "日次バッチが読み込まれていません。",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        # 全ギルド分を実行するが、結果は実行したギルドの分だけ返す
+        results = await cog.run_all()
+        lines = results.get(interaction.guild.id, [])
+
+        await interaction.followup.send(
+            "日次バッチを実行しました。\n"
+            + ("\n".join(f"・{line}" for line in lines) or "・このサーバーの処理対象なし"),
+            ephemeral=True
+        )
+
 
 class PeriodRankPaginator(discord.ui.View):
     """期間ランキング用のシンプルなページャ"""

@@ -164,7 +164,7 @@ class RainbowlStore:
                 "updated_at = :now "
                 "REMOVE applicant_channel_id, "
                 "profile_message_id, applied_at, "
-                "verdict_reason"
+                "verdict_reason, newcomer_at"
             ),
             ExpressionAttributeNames={
                 "#status": "status",
@@ -458,6 +458,7 @@ class RainbowlStore:
                 Key=self._key(guild_id, user_id),
                 UpdateExpression=(
                     "SET #status = :newcomer,"
+                    " newcomer_at = :now,"
                     " updated_at = :now"
                 ),
                 ConditionExpression=(
@@ -513,6 +514,90 @@ class RainbowlStore:
                 ExpressionAttributeValues={
                     ":rejected": "REJECTED",
                     ":passed": "PASSED",
+                    ":reason": verdict_reason,
+                    ":now": now_iso,
+                },
+            )
+            return True
+
+        except ClientError as exc:
+            if (
+                exc.response["Error"]["Code"]
+                == "ConditionalCheckFailedException"
+            ):
+                return False
+            raise
+
+    # =============================
+    #    日次バッチ：プロフィール未提出の自動キック
+    # =============================
+    def list_applied(
+        self,
+        guild_id: int,
+    ) -> List[Dict[str, Any]]:
+        """ギルド内でstatusがAPPLIEDのレコードを全件返す。"""
+        items: List[Dict[str, Any]] = []
+        query_kwargs: Dict[str, Any] = {
+            "KeyConditionExpression": "guild_id = :guild_id",
+            "FilterExpression": "#status = :applied",
+            "ExpressionAttributeNames": {
+                "#status": "status",
+            },
+            "ExpressionAttributeValues": {
+                ":guild_id": str(guild_id),
+                ":applied": "APPLIED",
+            },
+        }
+
+        while True:
+            resp = self.table.query(**query_kwargs)
+            items.extend(
+                _from_decimal(item)
+                for item in resp.get("Items", [])
+            )
+
+            last_key = resp.get("LastEvaluatedKey")
+
+            if not last_key:
+                return items
+
+            query_kwargs["ExclusiveStartKey"] = last_key
+
+    def set_rejected_profile_missing(
+        self,
+        guild_id: int,
+        user_id: int,
+        applied_at: str,
+        verdict_reason: str,
+        now_iso: str,
+    ) -> bool:
+        """
+        statusがAPPLIEDのまま、profile_message_idが未登録で、
+        applied_atが判定時に読んだ値と一致する場合のみREJECTEDに更新する
+        （運営の承認操作・再入場で先へ進んでいた場合の誤キック防止）。
+
+        成功した場合はTrue、条件不一致の場合はFalseを返す。
+        """
+        try:
+            self.table.update_item(
+                Key=self._key(guild_id, user_id),
+                UpdateExpression=(
+                    "SET #status = :rejected, "
+                    "verdict_reason = :reason, "
+                    "updated_at = :now"
+                ),
+                ConditionExpression=(
+                    "#status = :applied"
+                    " AND attribute_not_exists(profile_message_id)"
+                    " AND applied_at = :applied_at"
+                ),
+                ExpressionAttributeNames={
+                    "#status": "status",
+                },
+                ExpressionAttributeValues={
+                    ":rejected": "REJECTED",
+                    ":applied": "APPLIED",
+                    ":applied_at": applied_at,
                     ":reason": verdict_reason,
                     ":now": now_iso,
                 },

@@ -48,9 +48,47 @@ class RainbowlGuildConfig:
     reception_emoji_id: int
     reception_emoji_name: str
 
+    # 管理者と同様に扱うロール（任意。未設定なら空）。自動キック・月次活動確認の
+    # 対象外になり、運営専用ボタンも押せる。is_admin_like() を参照。
+    admin_role_ids: Tuple[int, ...] = ()
+
+
+def is_admin_like(
+    member: Any,
+    config: "RainbowlGuildConfig",
+) -> bool:
+    """
+    管理者と同様に扱うメンバーか。
+    Administrator権限・運営ロール・admin_role_idsのいずれかを持っていればTrue。
+    """
+    if member.guild_permissions.administrator:
+        return True
+
+    role_ids = {role.id for role in member.roles}
+
+    return (
+        config.staff_role_id in role_ids
+        or bool(role_ids & set(config.admin_role_ids))
+    )
+
 
 # 既存のギルド設定ストアを使い回す
 _guild_config_store = GuildConfigStore()
+
+
+def _optional_int_tuple(
+    data: Dict[str, Any],
+    key: str,
+) -> Tuple[int, ...]:
+    """任意のIDリストを取得する（未設定なら空タプル）。"""
+    try:
+        return tuple(int(x) for x in data.get(key) or [])
+    except (TypeError, ValueError) as exc:
+        raise RainbowlConfigError(
+            "rainbowl設定の値が不正です。"
+            f" key={key}"
+            f" value={data.get(key)}"
+        ) from exc
 
 
 def _required_positive_int(
@@ -246,6 +284,10 @@ def build_rainbowl_config(
         reception_emoji_name=_required_str(
             rainbowl_config,
             "reception_emoji_name",
+        ),
+        admin_role_ids=_optional_int_tuple(
+            rainbowl_config,
+            "admin_role_ids",
         ),
     )
 

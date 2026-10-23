@@ -30,9 +30,11 @@ def add_daily_voice_minutes(
     mid_group_min: float = 0.0,
     big_group_min: float = 0.0,
     muted_min: float = 0.0,
+    xp: float = 0.0,
 ):
     """
     今日の分のVC滞在時間（分）を日次テーブルに積み上げる。
+    xpは付与したVC XP（rainbowlの月次活動判定で使う。汎用側は0のまま）。
 
     通話スナップショットの1tickごとに呼ぶ想定：
       add_daily_voice_minutes(..., total_min=1.0, small_group_min=1.0, ...)
@@ -52,6 +54,7 @@ def add_daily_voice_minutes(
         ":mg": Decimal(str(mid_group_min)),
         ":bg": Decimal(str(big_group_min)),
         ":m": Decimal(str(muted_min)),
+        ":xp": Decimal(str(xp)),
         ":zero": Decimal("0"),
         ":updated": now_jst.isoformat(),
     }
@@ -69,6 +72,7 @@ def add_daily_voice_minutes(
               mid_group_min   = if_not_exists(mid_group_min, :zero) + :mg,
               big_group_min   = if_not_exists(big_group_min, :zero) + :bg,
               muted_min       = if_not_exists(muted_min, :zero) + :m,
+              xp_total        = if_not_exists(xp_total, :zero) + :xp,
               updated_at      = :updated
         """,
         ExpressionAttributeValues=expr_attr_values,
@@ -133,6 +137,66 @@ def get_guild_total_minutes_in_range(
 
             total_min = float(item.get("total_min", 0.0))
             totals[uid] += total_min
+
+        day += datetime.timedelta(days=1)
+
+    return dict(totals)
+
+
+def _estimate_voice_xp(item: dict) -> float:
+    """
+    xp_totalを記録する前の日次レコード用に、人数別の滞在分数から
+    rainbowlのVC XP（0.3 × 人数ボーナス × ミュート倍率）を概算する。
+    ミュート分数は人数別に分かれていないため、2〜3人相当として差し引く。
+    """
+    base = 0.3
+    xp = base * (
+        0.8 * float(item.get("solo_min", 0.0))
+        + 1.2 * float(item.get("small_group_min", 0.0))
+        + 1.5 * float(item.get("mid_group_min", 0.0))
+        + 2.0 * float(item.get("big_group_min", 0.0))
+    )
+    xp -= base * 1.2 * 0.5 * float(item.get("muted_min", 0.0))
+    return max(xp, 0.0)
+
+
+def get_guild_xp_in_range(
+    guild_id: int,
+    date_from: datetime.date,
+    date_to: datetime.date,
+) -> dict[int, float]:
+    """
+    指定期間 [date_from, date_to] のギルド内ユーザー別 VC XP 合計。
+    xp_totalが無い日（記録開始前）は滞在分数から概算する。
+    戻り値: { user_id(int): xp(float) }
+    """
+    totals: dict[int, float] = defaultdict(float)
+
+    day = date_from
+    while day <= date_to:
+        pk = _make_guild_date_key(guild_id, day)
+        query_kwargs = {
+            "KeyConditionExpression": Key("guild_date").eq(pk),
+        }
+
+        while True:
+            resp = table.query(**query_kwargs)
+
+            for item in resp.get("Items", []):
+                try:
+                    uid = int(item["user_id"])
+                except (KeyError, ValueError, TypeError):
+                    continue
+
+                if "xp_total" in item:
+                    totals[uid] += float(item["xp_total"])
+                else:
+                    totals[uid] += _estimate_voice_xp(item)
+
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            query_kwargs["ExclusiveStartKey"] = last_key
 
         day += datetime.timedelta(days=1)
 

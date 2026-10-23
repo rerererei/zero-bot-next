@@ -23,6 +23,7 @@ VC活動を日次（ギルド+日付単位）で記録する集計テーブル�
 | `mid_group_min` | Number | 4〜6人でいた時間 |
 | `big_group_min` | Number | 7人以上でいた時間 |
 | `muted_min` | Number | ミュート状態だった時間 |
+| `xp_total` | Number | その日に付与したVC XP（rainbowlのみ記録。月次活動確認のスコアに使う。2026-10-24以前のレコードには無く、集計時は滞在分数から概算する） |
 | `updated_at` | String (ISO8601) | 最終更新日時 |
 
 ## 主な関数

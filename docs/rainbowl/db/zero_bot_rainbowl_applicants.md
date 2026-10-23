@@ -25,6 +25,7 @@ rainbowl機能（入場〜面談合否判定フロー）の応募者状態。レ
 | `applied_at` | String (ISO8601) | 入会申請日時（3日自動キック判定の起点） |
 | `verdict_reason` | String | 合否・キック理由 |
 | `application_history` | List\<Map\> | 過去の挑戦のアーカイブ（`attempt`, `joined_at`, `applied_at`, `final_status`, `verdict_reason`, `archived_at`） |
+| `newcomer_at` | String (ISO8601) | 「新人」になった日時（月次活動判定の新規メンバー除外期間の起点。2026-10-24以前に新人になった人には無い） |
 | `updated_at` | String (ISO8601) | 最終更新日時 |
 
 ## 冪等性・注意点

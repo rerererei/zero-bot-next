@@ -3,7 +3,7 @@
 入会後メンバーの継続的な状態（在籍確認・活動休止・個別除外・入会後プロフィール）を、guild_id+user_idで1件だけ持つテーブル。[zero_bot_rainbowl_applicants](./zero_bot_rainbowl_applicants.md)と同じ「現在の状態＋履歴配列」の設計（レコードは削除せず、履歴をアーカイブして使い回す）。
 
 - 実装：[data/rainbowl/member_state_store.py](../../../data/rainbowl/member_state_store.py)（`MemberStateStore`クラス）
-- 用途：月次活動整理（11章）バッチ本体（未実装）、入会後プロフィール機能（未実装）
+- 用途：月次活動確認（[services/rainbowl_activity_review_service.py](../../../services/rainbowl_activity_review_service.py)）、入会後プロフィール機能（未実装）
 - 状態：既存（2026-09-06作成、[scripts/setup_activity_tables.py](../../../scripts/setup_activity_tables.py)）
 
 ## キー構造
@@ -18,7 +18,7 @@
 | `membership_status` | String | `ACTIVE` / `KICK_PENDING` / `KICKED` |
 | `pause` | Map | 活動休止申請。`is_paused`, `reason`, `requested_at`, `resume_at` |
 | `exempt` | Map | 運営による個別除外登録。`is_exempt`, `reason`, `granted_by`, `granted_at` |
-| `current_review` | Map \| 属性なし | 進行中の在籍確認サイクル（無ければ属性自体が存在しない）。`target_month`, `status`, `text_activity`, `vc_activity`, `score`, `confirm_deadline`, `started_at` |
+| `current_review` | Map \| 属性なし | 進行中の在籍確認サイクル（無ければ属性自体が存在しない）。`target_month`, `status`（`PENDING`/`RETAINED`/`KICKING`）, `text_activity`, `vc_activity`, `score`, `confirm_deadline`, `started_at`, `review_channel_id`, `staff_message_id`, `retained_by`, `retained_at` |
 | `review_history` | List\<Map\> | 過去の在籍確認サイクルのアーカイブ（`current_review`の内容 + `decision`, `decided_by`, `reason`, `decided_at`） |
 | `initial_profile` | Map | 入会後プロフィールの初回記載（一度登録されたら不変）。`content`, `message_id`, `recorded_at` |
 | `current_profile` | Map | 入会後プロフィールの最新版（編集のたびに上書き）。`content`, `message_id`, `updated_at` |
@@ -32,7 +32,11 @@
 - `set_pause(...)` / `clear_pause(...)`：活動休止申請の登録・解除
 - `set_exempt(...)` / `clear_exempt(...)`：個別除外登録・解除
 - `start_review_cycle(...)`：在籍確認サイクルを開始（`current_review`が未登録の場合のみ）
-- `resolve_review_cycle(...)`：進行中サイクルを終了し、`review_history`へアーカイブ（`decision`に`RETAINED`/`KICKED`/`CANCELLED`/`ERROR`等）
+- `resolve_review_cycle(...)`：進行中サイクルを終了し、`review_history`へアーカイブ（`decision`に`RETAINED`/`KICKED`/`CANCELLED`/`LEFT`。`KICKED`以外は`membership_status`を`ACTIVE`に戻す）
+- `list_reviews_in_progress(guild_id)`：`current_review`を持つレコードを全件取得（期限処理用）
+- `set_review_fields(...)`：進行中サイクルへ`review_channel_id`・`staff_message_id`等を追記（再実行時の重複作成防止）
+- `mark_review_retained(...)`：「残留」ボタン。`PENDING`かつ期限前の場合のみ`RETAINED`に
+- `claim_review_kick(...)`：期限キック直前に`PENDING`→`KICKING`（残留ボタンとの競合防止）
 
 ## 冪等性・注意点
 
@@ -44,8 +48,6 @@
 
 以下は次のステップで検討予定（未実装）：
 
-- `current_review.review_channel_id`：本人専用チャンネルのID
-- `current_review.notified_at`：運営への通知済みフラグ（重複通知防止）
-- `current_review.extension_log`：確認期間延長の操作履歴（誰が・いつ・何日延長したか）
-- `latest_activity_snapshot`（トップレベル）：基準を満たしていた月も含めた直近の集計結果。`review_history`は基準未達でサイクルが発生した月しか残らないため、「前月活動量」表示のために別途必要
-- `joined_at`：入会日。[zero_bot_rainbowl_applicants](./zero_bot_rainbowl_applicants.md)の`first_joined_at`/`last_joined_at`と二重管理になる懸念があり、複製するか参照のみにするかは未確定
+- `latest_activity_snapshot`（トップレベル）：基準を満たしていた月も含めた直近の集計結果。現状「前月活動量」は集計時に日次テーブルから都度計算している
+
+2026-10-24の実装で解消したもの：`current_review.review_channel_id`・`staff_message_id`（重複作成・重複通知防止）は採用。確認期間の延長は廃止したため`extension_log`は不要。入会日は[zero_bot_rainbowl_applicants](./zero_bot_rainbowl_applicants.md)の`newcomer_at`を参照する（このテーブルへは複製しない）。

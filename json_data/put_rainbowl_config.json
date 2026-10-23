@@ -12,6 +12,7 @@
         "newcomer_role_id":           { "S": "1546058079727259658" },
         "member_role_id":             { "S": "1546061905716846592" },
         "staff_role_id":              { "S": "1534598450589732936" },
+        "admin_role_ids":             { "L": [ { "S": "1546550998904869088" } ] },
 
         "onboarding_category_id":     { "S": "1533523929602199571" },
         "interview_category_id":      { "S": "1533749814334849154" },
