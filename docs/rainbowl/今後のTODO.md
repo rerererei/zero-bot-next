@@ -33,7 +33,7 @@
   ボタン→モーダル入力→本人＋管理者・Supporterだけが見えるプライベートスレッドを作成。詳細は[お問い合わせ窓口.md](./お問い合わせ窓口.md)。
 
 - [ ] **お問い合わせ窓口の設定投入・ボタン設置・チャンネル権限**
-  `scripts/rainbowl/setup_inquiry_config.py`でDB投入 → デプロイ後に`/set_inquiry_button`でボタン設置。チャンネル権限（メンバーは「メッセージを送信」オフ・「スレッドでメッセージを送信」オン・スレッド作成オフ）はDiscord側で手動設定。
+  `scripts/rainbowl/setup_inquiry_config.py`でDB投入済み（2026-10-24） → デプロイ後に`/set_inquiry_button`でボタン設置。チャンネル権限（メンバーは「メッセージを送信」オフ・「スレッドでメッセージを送信」オン・スレッド作成オフ）はDiscord側で手動設定。
 
 - [ ] **休止申請・個別除外の登録手段が無い**
   データ層（`member_state`の`pause`/`exempt`）のみ。現状はDBを直接編集する必要がある。必要になったらコマンド化する（特別除外ロール`activity_review.exempt_role_ids`で代用も可）。
