@@ -115,7 +115,7 @@ class InquiryModal(discord.ui.Modal):
 
         if not isinstance(channel, discord.TextChannel):
             await interaction.response.send_message(
-                "お問い合わせチャンネルが見つかりません。運営へ直接ご連絡ください。",
+                "お問い合わせチャンネルが見つかりません。管理者へ直接ご連絡ください。",
                 ephemeral=True,
             )
             return
@@ -157,7 +157,7 @@ async def _create_inquiry_thread(
     subject: str,
     body: str,
 ) -> discord.Thread:
-    """本人＋運営だけが見られるプライベートスレッドを作成し、内容を投稿する。"""
+    """本人＋管理者（管理者・Supporter）だけが見られるプライベートスレッドを作成し、内容を投稿する。"""
     name = f"{member.display_name}さん｜{subject}"[:THREAD_NAME_MAX]
 
     thread = await channel.create_thread(
