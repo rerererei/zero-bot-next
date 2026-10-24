@@ -25,6 +25,7 @@ guild_id以外の各トップレベル属性が、そのまま機能ごとの設
 | `rankcard` | RANK CARDのデフォルト背景・配色 | RANK CARD描画 |
 | `rainbowl` | rainbowl機能の各種チャンネル・ロールID | [cogs/rainbowl_onboarding.py](../../cogs/rainbowl_onboarding.py) / [cogs/rainbowl_interview.py](../../cogs/rainbowl_interview.py) |
 | `bdsm`（投入待ち） | `/bdsm_check`用のチャンネルID3種 | [cogs/bdsm_commands.py](../../cogs/bdsm_commands.py)（[今後のTODO.md](../rainbowl/今後のTODO.md)参照） |
+| `inquiry` | お問い合わせ窓口のチャンネルID・通知ロールID | [cogs/rainbowl_inquiry.py](../../cogs/rainbowl_inquiry.py)（投入：[scripts/rainbowl/setup_inquiry_config.py](../../scripts/rainbowl/setup_inquiry_config.py)） |
 | `activity_review` | 月次活動確認の確認用ロール・運営チャンネル・個別連絡カテゴリー・特別除外ロールID・基準値（`min_score`）・確認日数・新規除外日数・開始月 | [services/rainbowl_activity_review_service.py](../../services/rainbowl_activity_review_service.py)（投入：[scripts/rainbowl/setup_activity_review_config.py](../../scripts/rainbowl/setup_activity_review_config.py)） |
 
 ## 死んだ設定（要リファクタリング、削除は未実施）

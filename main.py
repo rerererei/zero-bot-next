@@ -63,6 +63,9 @@ class ZeroBot(commands.Bot):
             # rainbowl（月次活動確認：残留ボタン・/kick_is_enabled）
             "cogs.rainbowl_activity_review",
 
+            # rainbowl（お問い合わせ窓口）
+            "cogs.rainbowl_inquiry",
+
             # 日次バッチ（JST 0:00）
             "cogs.daily_batch",
 
