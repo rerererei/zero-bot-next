@@ -206,7 +206,7 @@ async def send_message_edit_log(
 async def send_message_delete_log(
     *,
     guild: discord.Guild,
-    channel: Any,
+    channel: Any,ｚ
     author_id: Optional[int],
     author: Optional[discord.abc.User],
     content: Optional[str],
@@ -280,7 +280,7 @@ async def send_voice_state_log(
     embed = discord.Embed(
         description=(
             f"{member.mention} がボイスチャンネルに{verb} "
-            f"{channel_obj.mention}."
+            f"**{channel_obj.name}**."
         ),
         color=color,
     )
