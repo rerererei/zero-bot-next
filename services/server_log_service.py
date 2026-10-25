@@ -206,7 +206,7 @@ async def send_message_edit_log(
 async def send_message_delete_log(
     *,
     guild: discord.Guild,
-    channel: Any,ｚ
+    channel: Any,
     author_id: Optional[int],
     author: Optional[discord.abc.User],
     content: Optional[str],
