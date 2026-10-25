@@ -34,6 +34,10 @@ GUILD_ID = "1533518300271607929"
 ONBOARDING_CATEGORY_ID = "1533523929602199571"
 INTERVIEW_CATEGORY_ID = "1533749814334849154"
 ARCHIVE_CATEGORY_ID = "1535183895165673482"
+# VCテキストのアーカイブ先（別サーバー）。設定があると、そのサーバーに
+# `yyyymm_nn` カテゴリーを作って転記する（utils/channel_manager.py）。
+# この場合 archive.category_id / logging.voice_text_category_id は使われない。
+ARCHIVE_SERVER_ID = "1546942372309508278"
 
 EXCLUDED_CATEGORY_IDS = [
     ONBOARDING_CATEGORY_ID,
@@ -45,6 +49,7 @@ NAMESPACES = {
 
     "archive": {
         "category_id": ARCHIVE_CATEGORY_ID,
+        "server_id": ARCHIVE_SERVER_ID,
     },
 
     # voice_text_category_id は archive_manager が使うカテゴリーと同一にする

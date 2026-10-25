@@ -4,10 +4,11 @@ from discord.ext import commands
 import datetime
 import pytz
 import re
-from typing import Optional
+from typing import List, Optional
 
 from config import debug_log
 from data.guild_config_store import GuildConfigStore
+from utils.channel_manager import ARCHIVE_CATEGORY_PATTERN
 
 jst = pytz.timezone("Asia/Tokyo")
 
@@ -19,17 +20,13 @@ class ArchiveManagerCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    def _get_archive_category(self, guild: discord.Guild) -> Optional[discord.CategoryChannel]:
+    def _find_archive_category(self, guild: discord.Guild, archive_cfg: dict) -> Optional[discord.CategoryChannel]:
         """
-        ギルド設定テーブルからアーカイブ用カテゴリー情報を取得して、
-        実際の CategoryChannel オブジェクトに変換する。
+        config.archive の設定から、guild 内のアーカイブ用カテゴリーを探す。
         優先順位:
           1) config.archive.category_id
           2) config.archive.category_name
         """
-        cfg = guild_config_store.get_config(guild.id) or {}
-        archive_cfg = cfg.get("archive") or {}
-
         cat_id_raw = archive_cfg.get("category_id")
         cat_name = archive_cfg.get("category_name")
 
@@ -51,6 +48,49 @@ class ArchiveManagerCog(commands.Cog):
 
         # 見つからない
         return None
+
+    @staticmethod
+    def _archive_server_id(archive_cfg: dict) -> Optional[int]:
+        """config.archive.server_id（アーカイブ用の別サーバーID）。未設定・不正なら None"""
+        raw_id = archive_cfg.get("server_id")
+        if not raw_id:
+            return None
+        try:
+            return int(raw_id)
+        except (TypeError, ValueError):
+            debug_log(f"[ARCHIVE] invalid server_id in config: {raw_id}")
+            return None
+
+    def _get_archive_categories(self, guild: discord.Guild) -> List[discord.CategoryChannel]:
+        """
+        コマンドを実行したサーバー内にあるアーカイブ用カテゴリーを返す。
+        - 実行サーバー自身の設定に archive.server_id が無ければ、これまで通り自身のカテゴリー
+        - 他サーバーの設定で archive.server_id が実行サーバーを指していれば（＝アーカイブ用サーバー）、
+          `yyyymm_nn` 形式のカテゴリーをすべて対象にする
+        """
+        categories: List[discord.CategoryChannel] = []
+
+        own_archive_cfg = (guild_config_store.get_config(guild.id) or {}).get("archive") or {}
+        if self._archive_server_id(own_archive_cfg) is None:
+            category = self._find_archive_category(guild, own_archive_cfg)
+            if category is not None:
+                categories.append(category)
+
+        if self._is_archive_server(guild):
+            categories.extend(c for c in guild.categories if ARCHIVE_CATEGORY_PATTERN.match(c.name))
+
+        # 同じカテゴリーが重複しても1回だけ
+        return list({c.id: c for c in categories}.values())
+
+    def _is_archive_server(self, guild: discord.Guild) -> bool:
+        """他サーバーの archive.server_id がこのサーバーを指しているか"""
+        for source_guild in self.bot.guilds:
+            if source_guild.id == guild.id:
+                continue
+            archive_cfg = (guild_config_store.get_config(source_guild.id) or {}).get("archive") or {}
+            if self._archive_server_id(archive_cfg) == guild.id:
+                return True
+        return False
 
     @app_commands.command(
         name="manage_comment",
@@ -88,21 +128,24 @@ class ArchiveManagerCog(commands.Cog):
             )
             return
 
-        # ★ ここが DB 参照になったところ
-        category = self._get_archive_category(guild)
-        if category is None:
+        categories = self._get_archive_categories(guild)
+        if not categories:
             await interaction.response.send_message(
-                "⚠ アーカイブ用カテゴリーが設定されていません。\n"
-                "管理者さんに `config.archive.category_id` または `category_name` の設定をお願いしてください。",
+                "⚠ このサーバーにはアーカイブ用カテゴリーがありません。\n"
+                "アーカイブを置いているサーバーで実行するか、"
+                "`config.archive.category_id` または `category_name` の設定を確認してください。",
                 ephemeral=True,
             )
             return
 
-        debug_log(f"[DELETE ARCHIVE] `{date}` 以前のアーカイブチャンネルを削除します (category={category.name})")
+        debug_log(
+            f"[DELETE ARCHIVE] `{date}` 以前のアーカイブチャンネルを削除します "
+            f"(categories={[c.name for c in categories]})"
+        )
 
         # カテゴリー配下のチャンネル名から yyyymmdd プレフィックスを見て削除対象を抽出
         channels_to_delete = []
-        for channel in category.text_channels:
+        for channel in [ch for category in categories for ch in category.text_channels]:
             match = re.match(r"^(\d{8})_", channel.name)
             if match:
                 channel_date_str = match.group(1)
@@ -153,11 +196,25 @@ class DeleteConfirmView(discord.ui.View):
             return  # ←何も返さない（結果メッセージなし）
 
         # チャンネル削除処理だけ実行
+        deleted_ids = set()
         for channel in self.channels_to_delete:
             try:
                 await channel.delete()
+                deleted_ids.add(channel.id)
             except Exception:
                 pass  # エラーも無視（結果は送らない）
+
+        # アーカイブ用サーバーの `yyyymm_nn` カテゴリーが空になったら消す
+        categories = {ch.category.id: ch.category for ch in self.channels_to_delete if ch.category}
+        for category in categories.values():
+            if not ARCHIVE_CATEGORY_PATTERN.match(category.name):
+                continue
+            if any(ch.id not in deleted_ids for ch in category.channels):
+                continue
+            try:
+                await category.delete()
+            except Exception:
+                pass
 
         # 確認メッセージだけ消す
         await self.delete_original_message()

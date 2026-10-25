@@ -12,6 +12,7 @@ from utils.helpers import normalize_text_channel_name
 from utils.channel_manager import ChannelManager
 from data.guild_config_store import GuildConfigStore
 from utils.helpers import load_profile_messages, save_profile_messages
+from utils.helpers import fetch_avatar_png, set_author_with_uploaded_avatar
 from config import debug_log
 
 # JST設定
@@ -74,6 +75,19 @@ class VoiceEventsCog(commands.Cog):
         # }
         return gender_roles
 
+    async def _send_voice_log(self, guild, text_channel, embed, author_name, member):
+        """
+        入退室ログを送信する。
+        別サーバーのアーカイブへ送る場合は、アイコン画像もアップロードし直す。
+        """
+        if text_channel.guild.id == guild.id:
+            embed.set_author(name=author_name, icon_url=member.display_avatar.url)
+            return await text_channel.send(embed=embed)
+
+        files = []
+        set_author_with_uploaded_avatar(embed, author_name, member, await fetch_avatar_png(member), files)
+        return await text_channel.send(embed=embed, files=files)
+
     # ===============================
     #   Voice update メイン処理
     # ===============================
@@ -93,10 +107,12 @@ class VoiceEventsCog(commands.Cog):
                     description=f"**{member.display_name}** が **{before.channel.name}** から退出しました。",
                     color=0xE74C3C
                 )
-                embed.set_author(name=f"{member.display_name} さんの退出", icon_url=member.display_avatar.url)
                 embed.set_footer(text=datetime.datetime.now(jst).strftime("%Y-%m-%d %H:%M:%S"))
 
-                await text_channel.send(embed=embed)
+                if text_channel is not None:
+                    await self._send_voice_log(
+                        guild, text_channel, embed, f"{member.display_name} さんの退出", member
+                    )
 
                 # 退出後の残り人数
                 member_count = len(before.channel.members)
@@ -135,11 +151,13 @@ class VoiceEventsCog(commands.Cog):
                     description=f"**{member.display_name}** が **{after.channel.name}** に入室しました。",
                     color=0x2ECC71
                 )
-                embed.set_author(name=f"{member.display_name} さんの入室", icon_url=member.display_avatar.url)
                 embed.set_footer(text=datetime.datetime.now(jst).strftime("%Y-%m-%d %H:%M:%S"))
 
-                sent_msg = await text_channel.send(embed=embed)
-                self.join_message_tracking[member.id] = (text_channel.id, sent_msg.id)
+                if text_channel is not None:
+                    sent_msg = await self._send_voice_log(
+                        guild, text_channel, embed, f"{member.display_name} さんの入室", member
+                    )
+                    self.join_message_tracking[member.id] = (text_channel.id, sent_msg.id)
 
                 # 🔽 プロフリンク投稿
                 await self.post_user_recent_message_link(member, after.channel)

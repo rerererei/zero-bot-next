@@ -1,8 +1,10 @@
 import discord
+import io
 import re
 import json
 import os
 import datetime
+from typing import Optional
 
 from config import debug_log
 from data.guild_config_store import GuildConfigStore
@@ -66,6 +68,35 @@ def normalize_text_channel_name(name: str) -> str:
     name = re.sub(r"\s+", "-", name.strip())
     name = re.sub(r"-+", "-", name)
     return name.strip("-")
+
+
+AVATAR_ATTACHMENT_FILENAME = "avatar.png"
+
+
+async def fetch_avatar_png(user: discord.abc.User) -> Optional[bytes]:
+    """アイコン画像（64px・PNG）をダウンロードする。失敗したら None"""
+    try:
+        return await user.display_avatar.with_format("png").with_size(64).read()
+    except discord.HTTPException as e:
+        debug_log(f"[AVATAR] アイコン取得失敗のためURLを使います: {user} ({e})")
+        return None
+
+
+def set_author_with_uploaded_avatar(
+    embed: discord.Embed, name: str, user: discord.abc.User, avatar_png: Optional[bytes], files: list
+) -> None:
+    """
+    Embed の author アイコンを、アイコン画像をアップロードして設定する（別サーバーのアーカイブ用）。
+    アイコンを変えたり退会したりしても、アーカイブ側で表示されなくならないようにするため。
+    画像は files に追加するので、send(files=files) で一緒に送ること。
+    avatar_png が None（取得失敗）の場合は、これまで通りアイコンのURLを使う。
+    """
+    if avatar_png is None:
+        embed.set_author(name=name, icon_url=user.display_avatar.url)
+        return
+
+    files.append(discord.File(io.BytesIO(avatar_png), filename=AVATAR_ATTACHMENT_FILENAME))
+    embed.set_author(name=name, icon_url=f"attachment://{AVATAR_ATTACHMENT_FILENAME}")
 
 
 def get_voice_connected_members(guild: discord.Guild) -> list[discord.Member]:
