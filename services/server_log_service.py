@@ -46,6 +46,9 @@ COLOR_LEAVE = 0x99AAB5
 
 CONTENT_REMOVED_TEXT = "（コンテンツが削除されました）"
 
+# /clear_messages で一括削除中のチャンネルID（削除ログを出さない）
+PURGING_CHANNEL_IDS: set[int] = set()
+
 guild_config_store = GuildConfigStore()
 
 # ログ送信対象とみなすチャンネル種別（VCインチャ・スレッドを含む）
@@ -274,12 +277,12 @@ async def send_voice_state_log(
     if log_channel is None:
         return
 
-    verb = "参加しました" if joined else "退出しました"
+    verb = "に参加しました" if joined else "から退出しました"
     color = COLOR_VOICE_JOIN if joined else COLOR_VOICE_LEAVE
 
     embed = discord.Embed(
         description=(
-            f"{member.mention} がボイスチャンネルに{verb} "
+            f"{member.mention} がボイスチャンネル{verb} "
             f"**{channel_obj.name}**."
         ),
         color=color,

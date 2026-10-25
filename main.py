@@ -45,6 +45,7 @@ class ZeroBot(commands.Bot):
             "cogs.message_handler",
             "cogs.archive_manager",
             "cogs.server_logs",
+            "cogs.channel_cleanup",
 
             # BDSM Check
             "cogs.bdsm_commands",

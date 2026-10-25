@@ -132,6 +132,8 @@ class ServerLogsCog(commands.Cog):
     ) -> None:
         if payload.guild_id is None:
             return
+        if payload.channel_id in server_log_service.PURGING_CHANNEL_IDS:
+            return
 
         cached = payload.cached_message
         if cached is not None and cached.author.bot:
