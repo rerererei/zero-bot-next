@@ -6,6 +6,7 @@ rainbowl：月次活動整理（在籍確認）の受け口。
 - /kick_is_enabled：月ごとの集計・キックを実行するかどうかの設定
 - /activity_review_preview：今月の実行時点の活動状況の確認（書き込み・通知は一切しない）
 - /activity_review_test：指定した1人だけで月初の在籍確認を本番と同じ流れで試す（テスト用）
+- /activity_exclude：個別除外の登録／解除／一覧（月次活動確認の判定から外す。休止中の人もこれで登録する）
 
 集計・キック本体は cogs/daily_batch.py から
 services/rainbowl_activity_review_service.py を呼び出して実行する。
@@ -33,12 +34,16 @@ from services.rainbowl_activity_review_service import (
     default_kick_setting_month,
     format_preview_line,
     get_activity_review_config,
+    get_exclusion_state,
     is_kick_enabled,
+    list_exclusions,
     month_label,
     month_of,
     preview_current_month,
+    register_exempt,
     set_kick_enabled,
     start_test_review,
+    unregister_exempt,
 )
 
 
@@ -273,6 +278,167 @@ class RainbowlActivityReview(commands.Cog):
                 "・【残留】を押さなければ、締め処理でキックされます"
                 if kick_enabled
                 else "・今月は /kick_is_enabled が無効のため、締め処理ではキックせず見送りになります"
+            ),
+            ephemeral=True,
+        )
+
+    # ========================================
+    # /activity_exclude：個別除外
+    # ========================================
+
+    activity_exclude = app_commands.Group(
+        name="activity_exclude",
+        description="月次活動確認の個別除外（運営専用）",
+        guild_only=True,
+        default_permissions=discord.Permissions(administrator=True),
+    )
+
+    async def _check_exclude_target(
+        self,
+        interaction: discord.Interaction,
+        target: Optional[discord.Member] = None,
+    ) -> bool:
+        """設定の有無と対象者を確認する。NGならメッセージを返してFalse。"""
+        config = await get_activity_review_config(interaction.guild_id)
+
+        if config is None:
+            await interaction.response.send_message(
+                "このサーバーには月次活動確認（activity_review）が設定されていません。",
+                ephemeral=True,
+            )
+            return False
+
+        if target is None:
+            return True
+
+        try:
+            rb_config = await get_rainbowl_config(interaction.guild_id)
+        except RainbowlConfigError:
+            rb_config = None
+
+        if target.bot or (rb_config and is_admin_like(target, rb_config)):
+            await interaction.response.send_message(
+                f"{target.mention} はBot・管理者扱いのため、もともと月次活動確認の対象外です。",
+                ephemeral=True,
+            )
+            return False
+
+        return True
+
+    @staticmethod
+    def _pending_review_note(state: dict) -> str:
+        """在籍確認が進行中なら、登録だけではキックが止まらないことを添える。"""
+        review = state.get("current_review") or {}
+
+        if review.get("status") != "PENDING":
+            return ""
+
+        return (
+            f"\n⚠️ {month_label(review['target_month'])}分の在籍確認が進行中です。"
+            "今回の登録は進行中の確認には反映されないため、キックを止めるには【残留】を押してください。"
+        )
+
+    @activity_exclude.command(
+        name="exempt",
+        description="個別除外を登録します（休止中の人も含め、解除するまで月次活動確認の判定から外れます）",
+    )
+    @app_commands.describe(
+        target="除外するメンバー",
+        reason="理由（管理者向けの記録。休止なら「休止：〜12月まで」など期間も書いておく）",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def exclude_exempt(
+        self,
+        interaction: discord.Interaction,
+        target: discord.Member,
+        reason: app_commands.Range[str, 1, 200],
+    ) -> None:
+        if not await self._check_exclude_target(interaction, target):
+            return
+
+        await register_exempt(
+            interaction.guild_id,
+            target.id,
+            reason,
+            interaction.user.id,
+        )
+        state = await get_exclusion_state(interaction.guild_id, target.id)
+
+        await interaction.response.send_message(
+            f"{target.mention} を個別除外に登録しました。\n理由：{reason}"
+            + self._pending_review_note(state),
+            ephemeral=True,
+        )
+
+    @activity_exclude.command(
+        name="unexempt",
+        description="個別除外を解除します（翌月1日の集計から通常どおり判定されます）",
+    )
+    @app_commands.describe(target="個別除外を解除するメンバー")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def exclude_unexempt(
+        self,
+        interaction: discord.Interaction,
+        target: discord.User,
+    ) -> None:
+        if not await self._check_exclude_target(interaction):
+            return
+
+        state = await get_exclusion_state(interaction.guild_id, target.id)
+
+        if not (state.get("exempt") or {}).get("is_exempt"):
+            await interaction.response.send_message(
+                f"{target.mention} は個別除外に登録されていません。",
+                ephemeral=True,
+            )
+            return
+
+        await unregister_exempt(interaction.guild_id, target.id)
+        await interaction.response.send_message(
+            f"{target.mention} の個別除外を解除しました。",
+            ephemeral=True,
+        )
+
+    @activity_exclude.command(
+        name="list",
+        description="個別除外中のメンバーを一覧表示します",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def exclude_list(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        if not await self._check_exclude_target(interaction):
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        items = await list_exclusions(interaction.guild_id)
+        lines: List[str] = []
+
+        for item in items:
+            exempt = item.get("exempt") or {}
+            lines.append(
+                f"🛡 <@{item['user_id']}> {exempt.get('reason') or '（理由なし）'}"
+                f"（{(exempt.get('granted_at') or '')[:10]} <@{exempt.get('granted_by')}>）"
+            )
+
+        if not lines:
+            await interaction.followup.send(
+                "個別除外中のメンバーはいません。",
+                ephemeral=True,
+            )
+            return
+
+        description = "\n".join(lines)
+        if len(description) > 4000:
+            description = description[:4000] + "\n…（以下省略）"
+
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title=f"個別除外（{len(lines)}件）",
+                description=description,
+                color=discord.Color.blurple(),
             ),
             ephemeral=True,
         )

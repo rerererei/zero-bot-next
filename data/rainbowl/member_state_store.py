@@ -315,6 +315,35 @@ class MemberStateStore:
             },
         )
 
+    def list_exempt(
+        self,
+        guild_id: int,
+    ) -> List[Dict[str, Any]]:
+        """ギルド内で個別除外中のレコードを全件返す。"""
+        items: List[Dict[str, Any]] = []
+        query_kwargs: Dict[str, Any] = {
+            "KeyConditionExpression": "guild_id = :guild_id",
+            "FilterExpression": "exempt.is_exempt = :true",
+            "ExpressionAttributeValues": {
+                ":guild_id": str(guild_id),
+                ":true": True,
+            },
+        }
+
+        while True:
+            resp = self.table.query(**query_kwargs)
+            items.extend(
+                _from_decimal(item)
+                for item in resp.get("Items", [])
+            )
+
+            last_key = resp.get("LastEvaluatedKey")
+
+            if not last_key:
+                return items
+
+            query_kwargs["ExclusiveStartKey"] = last_key
+
     # =============================
     #    月次在籍確認サイクル
     # =============================

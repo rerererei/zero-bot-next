@@ -185,6 +185,50 @@ async def set_kick_enabled(
 
 
 # ========================================
+# 個別除外（/activity_exclude）
+# ========================================
+
+async def register_exempt(
+    guild_id: int,
+    user_id: int,
+    reason: str,
+    granted_by: int,
+) -> None:
+    await asyncio.to_thread(
+        _member_store.set_exempt,
+        guild_id,
+        user_id,
+        reason,
+        granted_by,
+        datetime.now(JST).isoformat(),
+    )
+
+
+async def unregister_exempt(guild_id: int, user_id: int) -> None:
+    await asyncio.to_thread(
+        _member_store.clear_exempt,
+        guild_id,
+        user_id,
+        datetime.now(JST).isoformat(),
+    )
+
+
+async def get_exclusion_state(
+    guild_id: int,
+    user_id: int,
+) -> Dict[str, Any]:
+    """1人分の個別除外・進行中の在籍確認（member_stateのレコードそのまま）。"""
+    return await asyncio.to_thread(_member_store.get_item, guild_id, user_id)
+
+
+async def list_exclusions(guild_id: int) -> List[Dict[str, Any]]:
+    """個別除外中のメンバーのmember_stateレコード一覧。"""
+    return await asyncio.to_thread(
+        _member_store.list_exempt, guild_id
+    )
+
+
+# ========================================
 # 「残留」ボタン（永続・ユーザーごと）
 # ========================================
 

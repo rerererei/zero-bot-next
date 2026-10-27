@@ -685,9 +685,9 @@ VC：30.0
 - Botアカウント
 - 運営・管理者（Administrator権限、`staff_role_id`、または`rainbowl.admin_role_ids`のロール＝Supporterを持つ人）
 - 「新人」になってから **2週間（14日）未満** の新規メンバー（集計実行時点で判定。`zero_bot_rainbowl_applicants`の`newcomer_at`、導入前に新人になった人は`updated_at`で代用。記録が無い既存メンバーは判定対象）
-- 事前に休止申請しているメンバー（`member_state`の`pause.is_paused`）
+- 事前に休止申請しているメンバー（`member_state`の`pause.is_paused`。登録コマンドは作らず、休止者も下の個別除外で登録する運用）
 - 特別除外ロールを持つメンバー（`guild_config`の`activity_review.exempt_role_ids`。運営補佐・協力者・動作確認用サブアカウントなど、ロールでまとめて除外したい人向け。初期値は空）
-- 運営が個別に除外登録したメンバー（`member_state`の`exempt.is_exempt`）
+- 運営が個別に除外登録したメンバー（`member_state`の`exempt.is_exempt`。`/activity_exclude exempt`で登録。休止中の人もこれで登録し、理由に期間を書いておく）
 
 2週間を過ぎていれば、入会月の途中からでも満額の基準（60XP）で判定する（日割りはしない）。
 
@@ -699,13 +699,12 @@ Bot障害などで正常に集計できなかった期間の除外は自動で�
 
 - [cogs/daily_batch.py](../../cogs/daily_batch.py)：日次バッチ（JST 0:00＋Bot起動直後）から、確認期限処理→月次集計の順に呼び出す。
 - [services/rainbowl_activity_review_service.py](../../services/rainbowl_activity_review_service.py)：集計・サイクル開始・「残留」ボタン・期限処理の本体。
-- [cogs/rainbowl_activity_review.py](../../cogs/rainbowl_activity_review.py)：「残留」ボタン（永続DynamicItem）の登録、`/kick_is_enabled`、`/activity_review_preview`。
+- [cogs/rainbowl_activity_review.py](../../cogs/rainbowl_activity_review.py)：「残留」ボタン（永続DynamicItem）の登録、`/kick_is_enabled`、`/activity_review_preview`、`/activity_exclude`（個別除外の登録／解除／一覧。2026-10-27追加）。
 - 設定：`zero_bot_guild_config`の`activity_review`名前空間（投入スクリプト：[scripts/rainbowl/setup_activity_review_config.py](../../scripts/rainbowl/setup_activity_review_config.py)）。この名前空間が無いギルドでは月次活動確認は実行されない。
 - データ：[data/rainbowl/activity_review_store.py](../../data/rainbowl/activity_review_store.py)（月次処理済みガード`BATCH#{月}`、月ごとのキック可否`KICK_SETTING#{月}`）、[data/rainbowl/member_state_store.py](../../data/rainbowl/member_state_store.py)（`current_review`／`review_history`）。
 
 未実装：
 
-- 休止申請・個別除外を登録する画面／コマンド（データ層のみ。現状はDBを直接編集する必要がある）
 - 入会後プロフィールの記入・編集フロー
 
 rainbowl専用のテーブル・コードは、Bot全体で共用する汎用テーブルと区別するため`data/rainbowl/`配下にまとめ、テーブル名も`zero_bot_rainbowl_`プレフィックスで統一している（テーブル定義は[docs/rainbowl/db/](./db/README.md)）。`zero_bot_text_daily_stats`・`zero_bot_voice_daily_stats`は、rainbowl専用ではなくBot全体の汎用テーブルのため`data/`直下・[docs/db/](../db/README.md)側に置いている。

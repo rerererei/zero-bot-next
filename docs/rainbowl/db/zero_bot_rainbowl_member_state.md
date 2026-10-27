@@ -16,7 +16,7 @@
 | フィールド | 型 | 説明 |
 |---|---|---|
 | `membership_status` | String | `ACTIVE` / `KICK_PENDING` / `KICKED` |
-| `pause` | Map | 活動休止申請。`is_paused`, `reason`, `requested_at`, `resume_at` |
+| `pause` | Map | 活動休止申請。`is_paused`, `reason`, `requested_at`, `resume_at`（判定は`is_paused`のみ参照。登録コマンドは無く、休止者は`exempt`で登録する運用） |
 | `exempt` | Map | 運営による個別除外登録。`is_exempt`, `reason`, `granted_by`, `granted_at` |
 | `current_review` | Map \| 属性なし | 進行中の在籍確認サイクル（無ければ属性自体が存在しない）。`target_month`, `status`（`PENDING`/`RETAINED`/`KICKING`）, `text_activity`, `vc_activity`, `score`, `confirm_deadline`, `started_at`, `review_channel_id`, `staff_message_id`, `retained_by`, `retained_at` |
 | `review_history` | List\<Map\> | 過去の在籍確認サイクルのアーカイブ（`current_review`の内容 + `decision`, `decided_by`, `reason`, `decided_at`） |
@@ -31,6 +31,7 @@
 - `record_initial_profile(...)` / `update_current_profile(...)`：入会後プロフィールの初回登録・更新
 - `set_pause(...)` / `clear_pause(...)`：活動休止申請の登録・解除
 - `set_exempt(...)` / `clear_exempt(...)`：個別除外登録・解除
+- `list_exempt(guild_id)`：個別除外中のレコードを全件取得（`/activity_exclude list`用）
 - `start_review_cycle(...)`：在籍確認サイクルを開始（`current_review`が未登録の場合のみ）
 - `resolve_review_cycle(...)`：進行中サイクルを終了し、`review_history`へアーカイブ（`decision`に`RETAINED`/`KICKED`/`CANCELLED`/`LEFT`。`KICKED`以外は`membership_status`を`ACTIVE`に戻す）
 - `list_reviews_in_progress(guild_id)`：`current_review`を持つレコードを全件取得（期限処理用）
