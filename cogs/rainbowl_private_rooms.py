@@ -24,7 +24,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from services import private_room_service, rainbowl_texts
+from services import private_room_service
 from services.private_room_service import PrivateRoomError
 from utils.interaction_cooldown import is_on_cooldown
 
@@ -1735,14 +1735,8 @@ class RainbowlPrivateRooms(commands.Cog):
                 f" channel_id={channel.id} error={exc}"
             )
 
-        await channel.send(
-            embed=discord.Embed(
-                title=rainbowl_texts.VC_CREATE_PANEL_TITLE,
-                description=rainbowl_texts.VC_CREATE_PANEL_DESCRIPTION,
-                color=discord.Color.blurple(),
-            ),
-            view=VcCreateButtonView(),
-        )
+        # 案内文は付けず、ボタンだけを投稿する
+        await channel.send(view=VcCreateButtonView())
 
         await interaction.followup.send(
             f"VC作成ボタンを設置しました → {channel.mention}",
