@@ -84,6 +84,20 @@ ROOM_TYPE_DISPLAY_NAMES = {
 }
 
 
+# 「VC作成」ボタン（/set_vc_create_button）で選ぶ部屋種別。
+# どれもパブリック会議として作成し、作成先カテゴリだけが変わる。
+# カテゴリIDは guild_config["rainbowl"]["private_room"]["room_kinds"]
+# （{"HOBBY": "...", ...}）から読む（投入：scripts/rainbowl/setup_vc_create_config.py）。
+ROOM_KINDS: List[Tuple[str, str, str]] = [
+    # (キー, 表示名, 絵文字)
+    ("HOBBY", "趣味部屋", "🎮"),
+    ("WORK", "作業部屋", "💻"),
+    ("FREE", "フリールーム", "🗣️"),
+]
+ROOM_KIND_ROOM_TYPE = ROOM_TYPE_PUBLIC_MEETING
+ROOM_KIND_LABELS = {key: label for key, label, _ in ROOM_KINDS}
+
+
 def is_public_room_type(room_type: str) -> bool:
     return room_type in PUBLIC_ROOM_TYPES
 
@@ -279,6 +293,29 @@ async def set_system_enabled(guild_id: int, enabled: bool) -> None:
         _save_private_room_settings(guild_id, settings)
 
     await asyncio.to_thread(_apply)
+
+
+async def get_room_kind_category_id(
+    guild_id: int, kind: str
+) -> Optional[int]:
+    """部屋種別（ROOM_KINDSのキー）の作成先カテゴリID。未設定ならNone。"""
+    settings = await asyncio.to_thread(get_private_room_settings, guild_id)
+    kinds = settings.get("room_kinds")
+    if not isinstance(kinds, dict):
+        return None
+    try:
+        return int(kinds[kind])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+async def get_create_button_channel_id(guild_id: int) -> Optional[int]:
+    """「VC作成」ボタンを設置するチャンネルID。未設定ならNone。"""
+    settings = await asyncio.to_thread(get_private_room_settings, guild_id)
+    try:
+        return int(settings["create_button_channel_id"])
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 async def get_menus(guild_id: int) -> List[Dict[str, Any]]:
@@ -597,6 +634,7 @@ async def create_room(
     requested_bitrate: int,
     room_type: str = ROOM_TYPE_PRIVATE_MEETING,
     initial_invited_ids: Optional[List[int]] = None,
+    kind_label: Optional[str] = None,
 ) -> Tuple[discord.VoiceChannel, bool, int]:
     """
     プライベートルーム（会議／個室）を作成する。
@@ -604,6 +642,8 @@ async def create_room(
     initial_invited_idsを渡すと、作成と同時にそのユーザーを招待済みとして
     登録する（個室で相手を選んでもらう用途）。無効なユーザー（Bot・
     作成者自身・サーバー未所属）は無条件で除外する。
+    kind_labelは「VC作成」ボタンで選んだ部屋種別（趣味部屋など）で、
+    操作ログの種別欄に添えるだけ。
 
     戻り値: (作成したVC, ビットレート補正が発生したか, 実際のビットレート)
     失敗時はPrivateRoomErrorを投げる。
@@ -784,7 +824,8 @@ async def create_room(
             guild,
             "🔒 ルーム作成",
             "プライベートルームが作成されました。",
-            種別=ROOM_TYPE_DISPLAY_NAMES.get(room_type, room_type),
+            種別=ROOM_TYPE_DISPLAY_NAMES.get(room_type, room_type)
+            + (f"（{kind_label}）" if kind_label else ""),
             作成者=f"{member} ({member.id})",
             チャンネル=channel.mention,
             部屋名=room_name,

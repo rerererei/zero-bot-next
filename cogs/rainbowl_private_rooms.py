@@ -10,6 +10,10 @@ services/private_room_service.py に集約する。
 「パブリック会議」「パブリック個室」の4種別
 （プライベートルーム機能.md 1章＋個室は会議の1対1版、
 パブリック系は招待制ではなく誰でも見える・入れる版）。
+
+趣味部屋・作業部屋・フリールームは、VC作成チャンネルの「VC作成」ボタン
+（/set_vc_create_button）から、モーダルで部屋種別を選んで作成する
+（中身はどれもパブリック会議。種別ごとに作成先カテゴリだけが変わる）。
 """
 
 import asyncio
@@ -20,12 +24,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from services import private_room_service
+from services import private_room_service, rainbowl_texts
 from services.private_room_service import PrivateRoomError
 from utils.interaction_cooldown import is_on_cooldown
 
 
 CREATE_BUTTON_PREFIX = "private_room_create:"
+VC_CREATE_BUTTON_CUSTOM_ID = "private_room_create_by_kind"
 DELETE_BUTTON_CUSTOM_ID = "private_room_delete_own"
 
 GENERIC_ERROR_MESSAGE = (
@@ -249,6 +254,122 @@ class SoloPartnerSelectView(_BaseView):
     def __init__(self, category_id: int, room_name_raw: str):
         super().__init__(timeout=120)
         self.add_item(SoloPartnerSelect(category_id, room_name_raw))
+
+
+# =========================================================
+#   VC作成ボタン → 部屋種別を選ぶモーダル → 作成
+# =========================================================
+class RoomKindCreateModal(_BaseModal, title="VC作成"):
+    def __init__(self):
+        super().__init__()
+
+        self.kind_select = discord.ui.Select(
+            placeholder="部屋種別を選択してください",
+            options=[
+                discord.SelectOption(label=label, value=key, emoji=emoji)
+                for key, label, emoji in private_room_service.ROOM_KINDS
+            ],
+        )
+        self.add_item(
+            discord.ui.Label(text="部屋種別", component=self.kind_select)
+        )
+
+        self.room_name_input = discord.ui.TextInput(
+            label="部屋名（空欄で「(表示名)'s ROOM」）",
+            required=False,
+            max_length=80,
+        )
+        self.add_item(self.room_name_input)
+
+        self.human_limit_input = discord.ui.TextInput(
+            label="人数（空欄で無制限・3〜99人）",
+            required=False,
+            max_length=3,
+        )
+        self.add_item(self.human_limit_input)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        kind = self.kind_select.values[0]
+        kind_label = private_room_service.ROOM_KIND_LABELS.get(kind, kind)
+
+        try:
+            limit = private_room_service.parse_human_limit(
+                self.human_limit_input.value
+            )
+        except PrivateRoomError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        category_id = await private_room_service.get_room_kind_category_id(
+            interaction.guild_id, kind
+        )
+        if category_id is None:
+            print(
+                "[private_room] room_kindsにカテゴリが未設定です"
+                f" guild_id={interaction.guild_id} kind={kind}"
+            )
+            await interaction.followup.send(
+                f"{kind_label}の作成先が設定されていないため、作成できません。"
+                "管理者へお問い合わせください。",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            channel, corrected, actual_bitrate = (
+                await private_room_service.create_room(
+                    interaction.guild,
+                    interaction.user,
+                    category_id,
+                    self.room_name_input.value,
+                    limit,
+                    private_room_service.DEFAULT_BITRATE_BPS,
+                    room_type=private_room_service.ROOM_KIND_ROOM_TYPE,
+                    kind_label=kind_label,
+                )
+            )
+        except PrivateRoomError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
+
+        message = f"{kind_label}を作成しました → {channel.mention}"
+        if corrected:
+            message += (
+                f"\nデフォルトのビットレートは現在のサーバーでは"
+                f"設定できません。設定可能な最大値である"
+                f"{actual_bitrate}bpsに変更しました。"
+            )
+        await interaction.followup.send(message, ephemeral=True)
+
+
+class VcCreateButtonView(_BaseView):
+    """VC作成チャンネルに設置する永続View（VC作成＋自分のルームを削除）。"""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+        create_button = discord.ui.Button(
+            label="VC作成",
+            emoji="🎙️",
+            style=discord.ButtonStyle.primary,
+            custom_id=VC_CREATE_BUTTON_CUSTOM_ID,
+        )
+        create_button.callback = self._on_create
+        self.add_item(create_button)
+        self.add_item(DeleteOwnRoomButton())
+
+    async def _on_create(self, interaction: discord.Interaction) -> None:
+        if interaction.user.bot:
+            await interaction.response.send_message(
+                "Botユーザーはこの機能を利用できません。",
+                ephemeral=True,
+            )
+            return
+
+        # モーダルは最初の応答でしか出せないため、DB問い合わせは送信後に行う
+        await interaction.response.send_modal(RoomKindCreateModal())
 
 
 # =========================================================
@@ -1046,6 +1167,7 @@ class RainbowlPrivateRooms(commands.Cog):
         self.bot.add_view(RoomMenuView())
         self.bot.add_view(PublicRoomMenuView())
         self.bot.add_view(DeleteOwnRoomButtonView())
+        self.bot.add_view(VcCreateButtonView())
 
         for guild in self.bot.guilds:
             if not await self._is_rainbowl_guild(guild.id):
@@ -1490,6 +1612,78 @@ class RainbowlPrivateRooms(commands.Cog):
 
         await interaction.followup.send(
             f"作成メニューを設置しました → {message.jump_url}",
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="set_vc_create_button",
+        description="VC作成ボタンを再設置します（既存のBotメッセージは削除されます・管理者専用）",
+    )
+    @app_commands.guild_only()
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_vc_create_button(
+        self, interaction: discord.Interaction
+    ) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await self._require_rainbowl(interaction):
+            return
+
+        channel_id = await private_room_service.get_create_button_channel_id(
+            interaction.guild_id
+        )
+        channel = (
+            interaction.guild.get_channel(channel_id) if channel_id else None
+        )
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.followup.send(
+                "VC作成チャンネルが設定されていないか、見つかりませんでした。",
+                ephemeral=True,
+            )
+            return
+
+        missing = []
+        for key, label, _ in private_room_service.ROOM_KINDS:
+            category_id = await private_room_service.get_room_kind_category_id(
+                interaction.guild_id, key
+            )
+            category = (
+                interaction.guild.get_channel(category_id)
+                if category_id
+                else None
+            )
+            if not isinstance(category, discord.CategoryChannel):
+                missing.append(label)
+        if missing:
+            await interaction.followup.send(
+                "作成先カテゴリが設定されていないか、見つかりませんでした："
+                + "、".join(missing),
+                ephemeral=True,
+            )
+            return
+
+        try:
+            await channel.purge(
+                limit=50,
+                check=lambda m: m.author.id == interaction.client.user.id,
+            )
+        except discord.HTTPException as exc:
+            print(
+                "[private_room] VC作成チャンネルの既存メッセージ削除に失敗しました"
+                f" channel_id={channel.id} error={exc}"
+            )
+
+        await channel.send(
+            embed=discord.Embed(
+                title=rainbowl_texts.VC_CREATE_PANEL_TITLE,
+                description=rainbowl_texts.VC_CREATE_PANEL_DESCRIPTION,
+                color=discord.Color.blurple(),
+            ),
+            view=VcCreateButtonView(),
+        )
+
+        await interaction.followup.send(
+            f"VC作成ボタンを設置しました → {channel.mention}",
             ephemeral=True,
         )
 
