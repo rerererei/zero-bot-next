@@ -49,6 +49,7 @@ from services.private_room_permissions import (
     EVERYONE_OVERWRITE,
     MEMBER_OVERWRITE,
     PUBLIC_ROLE_OVERWRITE,
+    VISIBLE_ROLE_OVERWRITE,
     apply_room_permissions,
 )
 from utils.room_text_validation import (
@@ -62,18 +63,32 @@ ROOM_TYPE_PRIVATE_MEETING = "PRIVATE_MEETING"
 ROOM_TYPE_PRIVATE_SOLO = "PRIVATE_SOLO"
 ROOM_TYPE_PUBLIC_MEETING = "PUBLIC_MEETING"
 ROOM_TYPE_PUBLIC_SOLO = "PUBLIC_SOLO"
+# 表個室：入会済みの人から見えるが、入れるのは作成者と招待した1人だけ。
+# 招待相手はモーダルで選び、作成後の招待追加・解除・人数変更はできない。
+ROOM_TYPE_VISIBLE_SOLO = "VISIBLE_SOLO"
 
 # 招待制ではない（入会済みロールに閲覧・接続を許可する）部屋種別。
 PUBLIC_ROOM_TYPES = {ROOM_TYPE_PUBLIC_MEETING, ROOM_TYPE_PUBLIC_SOLO}
 
-# 相手を選ばず「作成者+相手1人」固定の部屋種別（個室系）。
-SOLO_ROOM_TYPES = {ROOM_TYPE_PRIVATE_SOLO, ROOM_TYPE_PUBLIC_SOLO}
+# 見えるが入れない（入会済みロールに閲覧だけ許可する）部屋種別。
+VISIBLE_ROOM_TYPES = {ROOM_TYPE_VISIBLE_SOLO}
+
+# 人数入力が無く「作成者+相手1人」固定で作る部屋種別（個室系）。
+SOLO_ROOM_TYPES = {
+    ROOM_TYPE_PRIVATE_SOLO,
+    ROOM_TYPE_PUBLIC_SOLO,
+    ROOM_TYPE_VISIBLE_SOLO,
+}
+
+# 作成時に招待相手を1人選ぶ部屋種別。
+PARTNER_ROOM_TYPES = {ROOM_TYPE_PRIVATE_SOLO, ROOM_TYPE_VISIBLE_SOLO}
 
 ROOM_TYPE_CHOICES: List[Tuple[str, str]] = [
     ("プライベート会議", ROOM_TYPE_PRIVATE_MEETING),
     ("プライベート個室", ROOM_TYPE_PRIVATE_SOLO),
     ("パブリック会議", ROOM_TYPE_PUBLIC_MEETING),
     ("パブリック個室", ROOM_TYPE_PUBLIC_SOLO),
+    ("表個室", ROOM_TYPE_VISIBLE_SOLO),
 ]
 
 ROOM_TYPE_DISPLAY_NAMES = {
@@ -81,6 +96,7 @@ ROOM_TYPE_DISPLAY_NAMES = {
     ROOM_TYPE_PRIVATE_SOLO: "プライベート個室",
     ROOM_TYPE_PUBLIC_MEETING: "パブリック会議",
     ROOM_TYPE_PUBLIC_SOLO: "パブリック個室",
+    ROOM_TYPE_VISIBLE_SOLO: "表個室",
 }
 
 
@@ -102,8 +118,23 @@ def is_public_room_type(room_type: str) -> bool:
     return room_type in PUBLIC_ROOM_TYPES
 
 
+def is_visible_room_type(room_type: str) -> bool:
+    return room_type in VISIBLE_ROOM_TYPES
+
+
 def is_solo_room_type(room_type: str) -> bool:
     return room_type in SOLO_ROOM_TYPES
+
+
+def needs_partner(room_type: str) -> bool:
+    return room_type in PARTNER_ROOM_TYPES
+
+
+def needs_private_category(room_type: str) -> bool:
+    """作成先カテゴリに「入会済みの人から見えない」ことを要求する種別か（7章）。"""
+    return not is_public_room_type(room_type) and not is_visible_room_type(
+        room_type
+    )
 
 
 # パブリック系の部屋を見せる「入会済み」のロール。
@@ -137,16 +168,24 @@ async def role_overwrites_for_room_type(
     guild: discord.Guild, room_type: str
 ) -> Dict[discord.Role, discord.PermissionOverwrite]:
     """部屋種別に応じて、ロール単位で付ける権限上書きを返す。"""
-    if not is_public_room_type(room_type):
+    if is_public_room_type(room_type):
+        overwrite = PUBLIC_ROLE_OVERWRITE
+    elif is_visible_room_type(room_type):
+        overwrite = VISIBLE_ROLE_OVERWRITE
+    else:
         return {}
 
     roles = await asyncio.to_thread(_get_public_access_roles, guild)
-    return {role: PUBLIC_ROLE_OVERWRITE for role in roles}
+    return {role: overwrite for role in roles}
 
 
-# 個室系は「作成者+相手1人」固定。人数変更メニューからは
+# 個室系は「作成者+相手1人」固定。プライベート個室は人数変更メニューから
 # あとで自由に変更できる(会議と同じ仕様に合わせるため)。
 SOLO_ROOM_HUMAN_LIMIT = 2
+
+# 人数変更メニューで人数を変えられない（SOLO_ROOM_HUMAN_LIMITのまま固定）部屋種別。
+# パブリック個室＝2shot部屋・表個室は「2人で話す部屋」なので増やせないようにする（2026-10-28）。
+FIXED_LIMIT_ROOM_TYPES = {ROOM_TYPE_PUBLIC_SOLO, ROOM_TYPE_VISIBLE_SOLO}
 
 BITRATE_CHOICES: List[Tuple[str, int]] = [
     ("デフォルト(64kbps)", 64000),
@@ -480,25 +519,34 @@ def category_is_private_safe(category: discord.CategoryChannel) -> bool:
     return True
 
 
+def room_owner_label(room_type: str) -> str:
+    """「○○さんの{ここ}です。」に入れる部屋の呼び方。"""
+    if is_visible_room_type(room_type):
+        return "表個室"
+    if is_public_room_type(room_type):
+        return "パブリックルーム"
+    return "プライベートルーム"
+
+
 def build_room_menu_embed(
     owner: discord.Member,
     room_type: str = ROOM_TYPE_PRIVATE_MEETING,
 ) -> discord.Embed:
     is_public = is_public_room_type(room_type)
-    title = (
-        "🔓 パブリックルーム メニュー"
-        if is_public
-        else "🔒 プライベートルーム メニュー"
-    )
-    description = (
-        "このルームの設定は、以下のボタンから操作できます。\n"
-        + (
-            "操作できるのは作成者・管理者のみです"
-            "（誰でも参加はできます）。"
-            if is_public
-            else "操作できるのは作成者・招待ユーザー・管理者のみです。"
+    is_visible = is_visible_room_type(room_type)
+    if is_public:
+        title = "🔓 パブリックルーム メニュー"
+        note = "操作できるのは作成者・管理者のみです（誰でも参加はできます）。"
+    elif is_visible:
+        title = "👀 表個室 メニュー"
+        note = (
+            "操作できるのは作成者・招待ユーザー・管理者のみです"
+            "（周りからは見えますが、入れるのは2人だけです）。"
         )
-    )
+    else:
+        title = "🔒 プライベートルーム メニュー"
+        note = "操作できるのは作成者・招待ユーザー・管理者のみです。"
+    description = "このルームの設定は、以下のボタンから操作できます。\n" + note
     embed = discord.Embed(
         title=title,
         description=description,
@@ -747,23 +795,20 @@ async def create_room(
                 )
 
             # 遅延importで循環importを避ける（Viewはcogs側で定義）
-            from cogs.rainbowl_private_rooms import (
-                PublicRoomMenuView,
-                RoomMenuView,
-            )
+            from cogs.rainbowl_private_rooms import build_room_menu_view
 
-            room_label = "パブリック" if is_public else "プライベート"
+            room_label = room_owner_label(room_type)
             menu_message = await channel.send(
-                content=f"{member.mention} さんの{room_label}ルームです。",
+                content=f"{member.mention} さんの{room_label}です。",
                 embed=build_room_menu_embed(member, room_type),
-                view=PublicRoomMenuView() if is_public else RoomMenuView(),
+                view=build_room_menu_view(room_type),
             )
 
             if initial_invitees:
                 mentions = " ".join(u.mention for u in initial_invitees)
                 await channel.send(
                     f"{mentions}\n\n"
-                    f"🔒 この{room_label}ルームに招待されました。\n"
+                    f"🔒 この{room_label}に招待されました。\n"
                     "VCへの参加とルームメニューの操作が可能です。"
                 )
 
@@ -1158,6 +1203,11 @@ async def change_limit(
     await _ensure_system_enabled(guild.id)
     room = await get_room_for_channel(guild.id, channel.id)
     _ensure_operator(member, room)
+
+    if room.get("room_type") in FIXED_LIMIT_ROOM_TYPES:
+        raise PrivateRoomError(
+            f"この部屋は{SOLO_ROOM_HUMAN_LIMIT}人用のため、人数は変更できません。"
+        )
 
     new_limit = parse_human_limit(raw_limit)
     now = _now_iso()

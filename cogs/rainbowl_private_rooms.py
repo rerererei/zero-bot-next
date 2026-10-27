@@ -104,6 +104,7 @@ ROOM_CREATE_MODAL_TITLES = {
     private_room_service.ROOM_TYPE_PRIVATE_SOLO: "プライベート個室作成",
     private_room_service.ROOM_TYPE_PUBLIC_MEETING: "パブリック会議作成",
     private_room_service.ROOM_TYPE_PUBLIC_SOLO: "パブリック個室作成",
+    private_room_service.ROOM_TYPE_VISIBLE_SOLO: "表個室作成",
 }
 
 
@@ -131,8 +132,34 @@ class RoomCreateModal(_BaseModal):
         )
         self.add_item(self.room_name_input)
 
+        # 表個室は招待相手をモーダル内で選ぶ（プライベート個室は送信後に別途選ぶ）
+        self.partner_select = None
+        if room_type == private_room_service.ROOM_TYPE_VISIBLE_SOLO:
+            self.partner_select = discord.ui.UserSelect(
+                placeholder="一緒に入る相手を選択してください",
+                min_values=1,
+                max_values=1,
+                required=True,
+            )
+            self.add_item(
+                discord.ui.Label(
+                    text="招待する人",
+                    component=self.partner_select,
+                )
+            )
+
     async def on_submit(self, interaction: discord.Interaction) -> None:
         room_name_raw = self.room_name_input.value
+
+        if self.partner_select is not None:
+            await create_partner_room(
+                interaction,
+                self.room_type,
+                self.category_id,
+                room_name_raw,
+                self.partner_select.values[0],
+            )
+            return
 
         if self.human_limit_input is not None:
             try:
@@ -187,8 +214,65 @@ class RoomCreateModal(_BaseModal):
 
 
 # =========================================================
-#   プライベート個室 相手選択
+#   個室の相手選択（プライベート個室：送信後のセレクト／表個室：モーダル内）
 # =========================================================
+async def create_partner_room(
+    interaction: discord.Interaction,
+    room_type: str,
+    category_id: int,
+    room_name_raw: str,
+    selected: discord.abc.User,
+) -> None:
+    """選んだ相手を招待済みにして個室を作成する（応答はこの関数で行う）。"""
+    partner = interaction.guild.get_member(selected.id)
+
+    if partner is None:
+        await interaction.response.send_message(
+            "選択したユーザーが見つかりませんでした。"
+            "サーバーに参加しているユーザーを選んでください。",
+            ephemeral=True,
+        )
+        return
+    if partner.bot:
+        await interaction.response.send_message(
+            "Botユーザーは選択できません。", ephemeral=True
+        )
+        return
+    if partner.id == interaction.user.id:
+        await interaction.response.send_message(
+            "自分自身は選択できません。", ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    try:
+        channel, corrected, actual_bitrate = (
+            await private_room_service.create_room(
+                interaction.guild,
+                interaction.user,
+                category_id,
+                room_name_raw,
+                private_room_service.SOLO_ROOM_HUMAN_LIMIT,
+                private_room_service.DEFAULT_BITRATE_BPS,
+                room_type=room_type,
+                initial_invited_ids=[partner.id],
+            )
+        )
+    except PrivateRoomError as exc:
+        await interaction.followup.send(str(exc), ephemeral=True)
+        return
+
+    message = f"ルームを作成しました → {channel.mention}"
+    if corrected:
+        message += (
+            f"\nデフォルトのビットレートは現在のサーバーでは"
+            f"設定できません。設定可能な最大値である"
+            f"{actual_bitrate}bpsに変更しました。"
+        )
+    await interaction.followup.send(message, ephemeral=True)
+
+
 class SoloPartnerSelect(discord.ui.UserSelect):
     def __init__(self, category_id: int, room_name_raw: str):
         super().__init__(
@@ -200,54 +284,13 @@ class SoloPartnerSelect(discord.ui.UserSelect):
         self.room_name_raw = room_name_raw
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        selected = self.values[0]
-        partner = interaction.guild.get_member(selected.id)
-
-        if partner is None:
-            await interaction.response.send_message(
-                "選択したユーザーが見つかりませんでした。"
-                "サーバーに参加しているユーザーを選んでください。",
-                ephemeral=True,
-            )
-            return
-        if partner.bot:
-            await interaction.response.send_message(
-                "Botユーザーは選択できません。", ephemeral=True
-            )
-            return
-        if partner.id == interaction.user.id:
-            await interaction.response.send_message(
-                "自分自身は選択できません。", ephemeral=True
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True, thinking=True)
-
-        try:
-            channel, corrected, actual_bitrate = (
-                await private_room_service.create_room(
-                    interaction.guild,
-                    interaction.user,
-                    self.category_id,
-                    self.room_name_raw,
-                    private_room_service.SOLO_ROOM_HUMAN_LIMIT,
-                    private_room_service.DEFAULT_BITRATE_BPS,
-                    room_type=private_room_service.ROOM_TYPE_PRIVATE_SOLO,
-                    initial_invited_ids=[partner.id],
-                )
-            )
-        except PrivateRoomError as exc:
-            await interaction.followup.send(str(exc), ephemeral=True)
-            return
-
-        message = f"ルームを作成しました → {channel.mention}"
-        if corrected:
-            message += (
-                f"\nデフォルトのビットレートは現在のサーバーでは"
-                f"設定できません。設定可能な最大値である"
-                f"{actual_bitrate}bpsに変更しました。"
-            )
-        await interaction.followup.send(message, ephemeral=True)
+        await create_partner_room(
+            interaction,
+            private_room_service.ROOM_TYPE_PRIVATE_SOLO,
+            self.category_id,
+            self.room_name_raw,
+            self.values[0],
+        )
 
 
 class SoloPartnerSelectView(_BaseView):
@@ -380,6 +423,7 @@ CREATE_BUTTON_LABELS = {
     private_room_service.ROOM_TYPE_PRIVATE_SOLO: "🔒 プライベート個室を作成",
     private_room_service.ROOM_TYPE_PUBLIC_MEETING: "🔓 パブリック会議を作成",
     private_room_service.ROOM_TYPE_PUBLIC_SOLO: "🔓 パブリック個室を作成",
+    private_room_service.ROOM_TYPE_VISIBLE_SOLO: "👀 表個室を作成",
 }
 
 
@@ -1061,10 +1105,16 @@ class PublicRoomMenuView(_BaseView):
 
     招待制ではない（誰でも見える・入れる）ため、招待系のボタンは無い。
     custom_idはRoomMenuViewと重複しないよう別プレフィックスにしている。
+
+    fixed_limit=True（パブリック個室＝2shot部屋）のときは人数変更ボタンを
+    外して投稿する。押下の受け口は setup時に登録する通常版と custom_id が
+    同じなので、別途add_viewする必要はない。
     """
 
-    def __init__(self):
+    def __init__(self, fixed_limit: bool = False):
         super().__init__(timeout=None)
+        if fixed_limit:
+            self.remove_item(self.limit_button)
 
     @discord.ui.button(
         label="部屋名変更",
@@ -1117,6 +1167,18 @@ class PublicRoomMenuView(_BaseView):
         button: discord.ui.Button,
     ) -> None:
         await _handle_bitrate_button(interaction)
+
+
+def build_room_menu_view(room_type: str) -> discord.ui.View:
+    """部屋種別に応じて、VCインチャに投稿するルームメニューを返す。"""
+    if private_room_service.is_public_room_type(
+        room_type
+    ) or private_room_service.is_visible_room_type(room_type):
+        # 表個室は招待制だが相手固定のため、招待系ボタンの無い方を使う
+        return PublicRoomMenuView(
+            fixed_limit=room_type in private_room_service.FIXED_LIMIT_ROOM_TYPES
+        )
+    return RoomMenuView()
 
 
 # =========================================================
@@ -1568,7 +1630,7 @@ class RainbowlPrivateRooms(commands.Cog):
             )
             return
 
-        if not private_room_service.is_public_room_type(
+        if private_room_service.needs_private_category(
             room_type.value
         ) and not private_room_service.category_is_private_safe(category):
             await interaction.followup.send(
@@ -1841,9 +1903,12 @@ class RainbowlPrivateRooms(commands.Cog):
             )
             return
 
+        room_type = room.get(
+            "room_type", private_room_service.ROOM_TYPE_PRIVATE_MEETING
+        )
         owner = interaction.guild.get_member(int(room["owner_id"]))
         embed = (
-            private_room_service.build_room_menu_embed(owner)
+            private_room_service.build_room_menu_embed(owner, room_type)
             if owner
             else discord.Embed(title="🔒 プライベートルーム メニュー")
         )
@@ -1851,10 +1916,10 @@ class RainbowlPrivateRooms(commands.Cog):
         message = await channel.send(
             content=(
                 f"{owner.mention if owner else room['owner_id']} "
-                "さんのプライベートルームです。"
+                f"さんの{private_room_service.room_owner_label(room_type)}です。"
             ),
             embed=embed,
-            view=RoomMenuView(),
+            view=build_room_menu_view(room_type),
         )
 
         await asyncio.to_thread(

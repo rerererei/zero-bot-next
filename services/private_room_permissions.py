@@ -6,6 +6,8 @@
 - @everyone: 全種別で「チャンネルを見る」を拒否。
 - 入会済みロール（新人・member）: パブリック系（招待制ではない部屋）のみ
   「チャンネルを見る・VCへ接続」を明示許可する（PUBLIC_ROLE_OVERWRITE）。
+  表個室は「チャンネルを見る」だけ許可し「VCへ接続」は拒否する
+  （VISIBLE_ROLE_OVERWRITE）。
   @everyoneへ許可すると入場者・申請中など入会前の人にも見えてしまうため、
   ロール単位で許可する。どのロールに付けるかは呼び出し側が決める。
 - 作成者・招待ユーザー: 閲覧・接続・発言・VCインチャ投稿/履歴のみ明示許可。
@@ -49,6 +51,12 @@ EVERYONE_OVERWRITE = discord.PermissionOverwrite(view_channel=False)
 # 入会した人なら誰でも見える・入れるようにする。
 PUBLIC_ROLE_OVERWRITE = discord.PermissionOverwrite(
     view_channel=True, connect=True
+)
+
+# 表個室用。入会済みロールに付けて、見えるが入れない（接続できるのは
+# 作成者・招待ユーザーだけ）ようにする。
+VISIBLE_ROLE_OVERWRITE = discord.PermissionOverwrite(
+    view_channel=True, connect=False
 )
 
 MEMBER_OVERWRITE = discord.PermissionOverwrite(
