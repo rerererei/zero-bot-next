@@ -95,7 +95,7 @@ INQUIRY_THREAD_GUIDE_TEXT = (
 
 
 # VC作成（/set_vc_create_button で設置するメッセージ）
-VC_CREATE_PANEL_TITLE = "🎙️ VC作成"
+VC_CREATE_PANEL_TITLE = "🎙️ 会議VC作成"
 
 VC_CREATE_PANEL_DESCRIPTION = (
     "下の「VC作成」ボタンから、通話部屋を作成できます。\n"
