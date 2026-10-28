@@ -43,6 +43,19 @@ class GuildConfigStore:
         item = {k: v for k, v in item.items() if k != "guild_id"}
         return _from_decimal(item)
 
+    def set_namespace(self, guild_id: int, key: str, value):
+        """
+        設定の1名前空間（トップレベルのキー）だけを書き込む。
+        save_configと違い、他の名前空間を読み直して上書きしないため、
+        別の処理が同時に設定を書き換えても消してしまわない。
+        """
+        self.table.update_item(
+            Key={"guild_id": str(guild_id)},
+            UpdateExpression="SET #ns = :value",
+            ExpressionAttributeNames={"#ns": key},
+            ExpressionAttributeValues={":value": _to_decimal(value)},
+        )
+
     def save_config(self, guild_id: int, config: dict):
         cfg = _to_decimal(config)
         self.table.put_item(

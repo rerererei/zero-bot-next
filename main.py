@@ -67,6 +67,9 @@ class ZeroBot(commands.Bot):
             # rainbowl（お問い合わせ窓口）
             "cogs.rainbowl_inquiry",
 
+            # rainbowl（サーバー統計：VC接続数・会員数・男性数・女性数）
+            "cogs.rainbowl_server_stats",
+
             # 日次バッチ（JST 0:00）
             "cogs.daily_batch",
 
