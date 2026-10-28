@@ -20,7 +20,6 @@ from services.rainbowl_config_service import (
 )
 from services.rainbowl_onboarding_service import (
     build_join_log_embed,
-    fetch_user_bio,
     process_apply_button,
     process_member_join,
     process_next_button,
@@ -206,8 +205,7 @@ class RainbowlOnboarding(commands.Cog):
             )
             return
 
-        bio = await fetch_user_bio(self.bot, member.id)
-        embed = build_join_log_embed(member, item, bio)
+        embed = build_join_log_embed(member, item)
 
         join_log_channel = member.guild.get_channel(
             config.join_log_channel_id

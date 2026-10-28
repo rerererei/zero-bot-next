@@ -201,54 +201,9 @@ async def process_member_join(
     return item
 
 
-async def fetch_user_bio(
-    bot: discord.Client,
-    user_id: int,
-) -> Optional[str]:
-    """
-    Discordのユーザー自己紹介文（bio）を取得する。
-
-    Botトークンでこのエンドポイントを利用できるかは未検証。
-    失敗した場合は例外を投げず、常にNoneを返す
-    （呼び出し側は「取得不可」として表示すること）。
-    """
-    try:
-        route = discord.http.Route(
-            "GET",
-            "/users/{user_id}/profile",
-            user_id=user_id,
-        )
-
-        data = await bot.http.request(route)
-
-    except Exception as exc:
-        print(
-            "[rainbowl] bio取得に失敗しました"
-            "（未対応の可能性があります）"
-            f" user_id={user_id} error={exc}"
-        )
-        return None
-
-    if not isinstance(data, dict):
-        return None
-
-    user_data = data.get("user")
-
-    if not isinstance(user_data, dict):
-        return None
-
-    bio = user_data.get("bio")
-
-    if isinstance(bio, str) and bio.strip():
-        return bio.strip()
-
-    return None
-
-
 def build_join_log_embed(
     member: discord.Member,
     item: Dict[str, Any],
-    bio: Optional[str],
 ) -> discord.Embed:
     """入場ログEmbed（join_log_channel_id用）を組み立てる。"""
     join_count = item.get("join_count", 1)
@@ -297,12 +252,6 @@ def build_join_log_embed(
         name="入場回数",
         value=f"{join_count}回目",
         inline=True,
-    )
-
-    embed.add_field(
-        name="自己紹介文（bio）",
-        value=bio if bio else "取得不可",
-        inline=False,
     )
 
     if latest_history is None:
