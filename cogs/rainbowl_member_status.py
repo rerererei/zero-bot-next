@@ -139,9 +139,6 @@ def _applicant_section(applicant: Dict[str, Any]) -> str:
     if applicant.get("verdict_reason"):
         lines.append(f"合否・キック理由：{applicant['verdict_reason']}")
 
-    if applicant.get("applicant_channel_id"):
-        lines.append(f"本人専用チャンネル：<#{applicant['applicant_channel_id']}>")
-
     history = applicant.get("application_history") or []
     if history:
         last = history[-1]
