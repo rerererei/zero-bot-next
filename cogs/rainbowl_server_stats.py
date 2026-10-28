@@ -201,8 +201,14 @@ class RainbowlServerStats(commands.Cog):
                     pass
 
         # カテゴリの権限（誰に見えるか）を引き継いだうえで、
-        # @everyoneの接続だけ拒否する（鍵付きVCとして表示される）
-        overwrites = dict(category.overwrites)
+        # @everyone・各ロール・個別メンバーすべての接続を拒否する（鍵付きVCとして表示される）。
+        # ロールの「接続許可」は@everyoneの拒否より優先されるため、@everyoneだけでは足りない。
+        # ※Administrator権限を持つ人は権限設定に関係なく接続できる（Discordの仕様）
+        overwrites = {}
+        for target, overwrite in category.overwrites.items():
+            overwrite = discord.PermissionOverwrite.from_pair(*overwrite.pair())
+            overwrite.update(connect=False)
+            overwrites[target] = overwrite
         everyone_ow = overwrites.get(
             guild.default_role, discord.PermissionOverwrite()
         )
