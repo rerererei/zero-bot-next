@@ -45,6 +45,14 @@ def _fmt_duration(sec: float) -> str:
     return f"{s}秒"
 
 
+def _fmt_hours_minutes(minutes: float) -> str:
+    """分 → 『○時間△分』（1時間未満は『△分』）"""
+    h, m = divmod(int(minutes), 60)
+    if h > 0:
+        return f"{h}時間{m}分"
+    return f"{m}分"
+
+
 def _pct(part: float, whole: float) -> str:
     """割合（%）を文字列化"""
     if whole <= 0:
@@ -388,14 +396,14 @@ class ZBAdmin(commands.Cog):
             inline=True,
         )
 
-        # 時間帯別（分）
+        # 時間帯別（○時間△分）
         embed.add_field(
             name="⏰ 時間帯別滞在時間（合計）",
             value=(
-                f"0〜 6時 : {int(min_0_6)}分\n"
-                f"6〜12時 : {int(min_6_12)}分\n"
-                f"12〜18時: {int(min_12_18)}分\n"
-                f"18〜24時: {int(min_18_24)}分"
+                f"0〜 6時 : {_fmt_hours_minutes(min_0_6)}\n"
+                f"6〜12時 : {_fmt_hours_minutes(min_6_12)}\n"
+                f"12〜18時: {_fmt_hours_minutes(min_12_18)}\n"
+                f"18〜24時: {_fmt_hours_minutes(min_18_24)}"
             ),
             inline=False,
         )
