@@ -70,6 +70,9 @@ class ZeroBot(commands.Bot):
             # rainbowl（サーバー統計：VC接続数・会員数・男性数・女性数）
             "cogs.rainbowl_server_stats",
 
+            # rainbowl（メンバー1人分の状態確認：/member_status）
+            "cogs.rainbowl_member_status",
+
             # 日次バッチ（JST 0:00）
             "cogs.daily_batch",
 
