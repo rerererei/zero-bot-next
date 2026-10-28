@@ -10,7 +10,8 @@ rainbowl：メンバー1人分の状態を、各DBからまとめて一目で確
   - XP：VC・テキストのXPとレベル
   - 所有中の部屋（プライベートルーム機能）
 
-読み取り専用（DB・ロールには一切書き込まない）。結果は実行者だけに見える。
+読み取り専用（DB・ロールには一切書き込まない）。結果は実行したチャンネルに通常投稿する
+（管理者同士で共有して確認するため。管理者用チャンネルで使うこと）。
 退出済みの人も、ユーザーIDを指定すれば確認できる。
 """
 
@@ -266,7 +267,7 @@ class RainbowlMemberStatus(commands.Cog):
         interaction: discord.Interaction,
         target: discord.User,
     ) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(thinking=True)
 
         guild = interaction.guild
         member = guild.get_member(target.id)
@@ -329,7 +330,7 @@ class RainbowlMemberStatus(commands.Cog):
         for name, value in sections:
             embed.add_field(name=name, value=_clip(value), inline=False)
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed)
 
     async def cog_app_command_error(
         self,
