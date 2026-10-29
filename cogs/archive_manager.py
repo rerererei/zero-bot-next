@@ -64,17 +64,17 @@ class ArchiveManagerCog(commands.Cog):
     def _get_archive_categories(self, guild: discord.Guild) -> List[discord.CategoryChannel]:
         """
         コマンドを実行したサーバー内にあるアーカイブ用カテゴリーを返す。
-        - 実行サーバー自身の設定に archive.server_id が無ければ、これまで通り自身のカテゴリー
+        - 実行サーバー自身の archive.category_id / category_name のカテゴリー
+          （archive.server_id を設定済みでも、設定前のアーカイブが残っているので対象にする）
         - 他サーバーの設定で archive.server_id が実行サーバーを指していれば（＝アーカイブ用サーバー）、
           `yyyymm_nn` 形式のカテゴリーをすべて対象にする
         """
         categories: List[discord.CategoryChannel] = []
 
         own_archive_cfg = (guild_config_store.get_config(guild.id) or {}).get("archive") or {}
-        if self._archive_server_id(own_archive_cfg) is None:
-            category = self._find_archive_category(guild, own_archive_cfg)
-            if category is not None:
-                categories.append(category)
+        category = self._find_archive_category(guild, own_archive_cfg)
+        if category is not None:
+            categories.append(category)
 
         if self._is_archive_server(guild):
             categories.extend(c for c in guild.categories if ARCHIVE_CATEGORY_PATTERN.match(c.name))
