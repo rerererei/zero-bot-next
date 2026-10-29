@@ -161,7 +161,7 @@ class ChannelManager:
             match = re.match(r"(\d{8})_", cached_channel.name)  # YYYYMMDD_ の形式
             cached_date = match.group(1) if match else None
 
-            if cached_date == today_date:
+            if cached_date == today_date and cached_channel.guild.id == guild.id:
                 # debug_log(f"[CACHE_HIT] `{voice_channel.name}` → `{cached_channel.name}`")
                 return cached_channel
             else:
@@ -199,10 +199,14 @@ class ChannelManager:
         year_month = now.strftime("%Y%m")
         expected_channel_name = f"{today_date}_{normalize_text_channel_name(voice_channel.name)}"
 
-        # キャッシュ確認（チャンネル名の日付が今日なら使う）
+        # キャッシュ確認（チャンネル名の日付が今日で、アーカイブ用サーバーのチャンネルなら使う）
+        # ※アーカイブ先を設定した当日は、設定前に作った元サーバー内のチャンネルがキャッシュに残っている
         cached_channel = self.voice_text_mapping.get(voice_channel.id)
         if cached_channel:
-            if cached_channel.name.startswith(f"{today_date}_"):
+            if (
+                cached_channel.guild.id == archive_guild.id
+                and cached_channel.name.startswith(f"{today_date}_")
+            ):
                 return cached_channel
             del self.voice_text_mapping[voice_channel.id]
 
