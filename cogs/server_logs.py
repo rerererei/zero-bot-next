@@ -6,6 +6,7 @@
 - 編集ログ：テキストチャンネル・VCインチャ・スレッドでのメッセージ編集
 - 削除ログ：テキストチャンネル・VCインチャ・スレッドでのメッセージ削除
 - VCログ：ボイスチャンネルへの入退室
+- 参加ログ：サーバーへの参加（表示名・ユーザー名・ID・アカウント作成日）
 - 退出ログ：サーバーからの脱退（自主退出・Kick・Banを区別せずまとめて記録）
 
 Botユーザーのメッセージ・ロールは対象外（人間の操作のみ記録する）。
@@ -206,6 +207,19 @@ class ServerLogsCog(commands.Cog):
                 )
         except Exception as exc:
             print(f"[server_logs] voice state log error: {exc}")
+
+    # ========================================
+    # 参加ログ
+    # ========================================
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member) -> None:
+        if member.bot:
+            return
+
+        try:
+            await server_log_service.send_member_join_log(member)
+        except Exception as exc:
+            print(f"[server_logs] member join log error: {exc}")
 
     # ========================================
     # 退出ログ

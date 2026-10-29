@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from config import debug_log
 from data.guild_config_store import GuildConfigStore
-from utils.channel_manager import ARCHIVE_CATEGORY_PATTERN
+from utils.channel_manager import ARCHIVE_CATEGORY_PATTERN, DEFAULT_CATEGORY_NAME
 
 jst = pytz.timezone("Asia/Tokyo")
 
@@ -26,6 +26,7 @@ class ArchiveManagerCog(commands.Cog):
         優先順位:
           1) config.archive.category_id
           2) config.archive.category_name
+          3) どちらも未設定なら、ChannelManager が自動作成する DEFAULT_CATEGORY_NAME
         """
         cat_id_raw = archive_cfg.get("category_id")
         cat_name = archive_cfg.get("category_name")
@@ -45,6 +46,10 @@ class ArchiveManagerCog(commands.Cog):
             category = discord.utils.get(guild.categories, name=cat_name)
             if isinstance(category, discord.CategoryChannel):
                 return category
+
+        # 3) 設定が無いサーバーは自動作成されたカテゴリー
+        if not cat_id_raw and not cat_name:
+            return discord.utils.get(guild.categories, name=DEFAULT_CATEGORY_NAME)
 
         # 見つからない
         return None

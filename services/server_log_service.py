@@ -16,6 +16,7 @@ from typing import Any, Dict, Iterable, Optional
 import discord
 
 from data.guild_config_store import GuildConfigStore
+from utils.helpers import format_account_age
 
 JST = timezone(timedelta(hours=9))
 WEEKDAY_JP = ["月", "火", "水", "木", "金", "土", "日"]
@@ -25,12 +26,14 @@ LOG_TYPE_EDIT = "edit_log_channel_id"
 LOG_TYPE_DELETE = "delete_log_channel_id"
 LOG_TYPE_VOICE = "voice_log_channel_id"
 LOG_TYPE_LEAVE = "leave_log_channel_id"
+LOG_TYPE_JOIN = "join_log_channel_id"
 
 LOG_TYPE_CHOICES = [
     ("管理ログ（ロール変更）", LOG_TYPE_ADMIN),
     ("編集ログ", LOG_TYPE_EDIT),
     ("削除ログ", LOG_TYPE_DELETE),
     ("VCログ", LOG_TYPE_VOICE),
+    ("参加ログ", LOG_TYPE_JOIN),
     ("退出ログ", LOG_TYPE_LEAVE),
 ]
 
@@ -43,6 +46,7 @@ COLOR_DELETE = 0x992D22
 COLOR_VOICE_JOIN = 0x2ECC71
 COLOR_VOICE_LEAVE = 0xE74C3C
 COLOR_LEAVE = 0x99AAB5
+COLOR_JOIN = 0x57F287
 
 CONTENT_REMOVED_TEXT = "（コンテンツが削除されました）"
 
@@ -241,6 +245,36 @@ async def send_message_delete_log(
         text=format_footer(guild, datetime.now(timezone.utc))
     )
     await _send(log_channel, embed)
+
+
+# =============================
+#    参加ログ
+# =============================
+async def send_member_join_log(member: discord.Member) -> None:
+    channel = _get_log_channel(member.guild, LOG_TYPE_JOIN)
+    if channel is None:
+        return
+
+    created_at = member.created_at
+    unix_timestamp = int(created_at.timestamp())
+
+    embed = discord.Embed(
+        description=f"{member.mention} が参加しました",
+        color=COLOR_JOIN,
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.add_field(name="表示名", value=member.display_name, inline=True)
+    embed.add_field(name="ユーザー名", value=f"@{member.name}", inline=True)
+    embed.add_field(name="ユーザーID", value=f"`{member.id}`", inline=True)
+    embed.add_field(
+        name="アカウント作成日",
+        value=f"<t:{unix_timestamp}:D>（{format_account_age(created_at)}）",
+        inline=True,
+    )
+    embed.set_footer(
+        text=format_footer(member.guild, datetime.now(timezone.utc))
+    )
+    await _send(channel, embed)
 
 
 # =============================

@@ -188,3 +188,23 @@ def jst_now() -> datetime.datetime:
     JST の timezone-aware な現在時刻を返す。
     """
     return datetime.datetime.now(JST)
+
+
+def format_account_age(created_at: datetime.datetime) -> str:
+    """アカウント作成日から「n年nヶ月」形式の経過期間を作る。"""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    delta_days = (now - created_at).days
+
+    years = delta_days // 365
+    months = (delta_days % 365) // 30
+
+    if years and months:
+        return f"{years}年{months}ヶ月"
+
+    if years:
+        return f"{years}年"
+
+    if months:
+        return f"{months}ヶ月"
+
+    return f"{delta_days}日"

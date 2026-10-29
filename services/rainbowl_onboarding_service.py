@@ -19,7 +19,7 @@ from services.rainbowl_config_service import (
     RainbowlGuildConfig,
     is_admin_like,
 )
-from utils.helpers import normalize_text_channel_name
+from utils.helpers import format_account_age, normalize_text_channel_name
 
 
 JST = timezone(timedelta(hours=9))
@@ -42,26 +42,6 @@ store = RainbowlStore()
 
 def _now_iso() -> str:
     return datetime.now(JST).isoformat()
-
-
-def _format_account_age(created_at: datetime) -> str:
-    """アカウント作成日から「n年nヶ月」形式の経過期間を作る。"""
-    now = datetime.now(timezone.utc)
-    delta_days = (now - created_at).days
-
-    years = delta_days // 365
-    months = (delta_days % 365) // 30
-
-    if years and months:
-        return f"{years}年{months}ヶ月"
-
-    if years:
-        return f"{years}年"
-
-    if months:
-        return f"{months}ヶ月"
-
-    return f"{delta_days}日"
 
 
 # ============================================================
@@ -236,7 +216,7 @@ def build_join_log_embed(
     )
 
     created_at = member.created_at
-    account_age_text = _format_account_age(created_at)
+    account_age_text = format_account_age(created_at)
     unix_timestamp = int(created_at.timestamp())
 
     embed.add_field(
