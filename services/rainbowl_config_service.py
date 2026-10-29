@@ -52,6 +52,13 @@ class RainbowlGuildConfig:
     # 対象外になり、運営専用ボタンも押せる。is_admin_like() を参照。
     admin_role_ids: Tuple[int, ...] = ()
 
+    # 規約同意（任意。未設定なら規約同意の判定は行わない）。
+    # 了承済みの人が agreement_messages のすべてに⭕を押すと agreed_role_id を付与し、
+    # ロール付与チャンネルが見えるようになる（cogs/rainbowl_rules_agreement.py）。
+    agreed_role_id: int = 0
+    # (チャンネルID, メッセージID) の組
+    agreement_messages: Tuple[Tuple[int, int], ...] = ()
+
 
 def is_admin_like(
     member: Any,
@@ -88,6 +95,35 @@ def _optional_int_tuple(
             "rainbowl設定の値が不正です。"
             f" key={key}"
             f" value={data.get(key)}"
+        ) from exc
+
+
+def _optional_positive_int(
+    data: Dict[str, Any],
+    key: str,
+) -> int:
+    """任意の正整数を取得する（未設定なら0）。"""
+    if not data.get(key):
+        return 0
+    return _required_positive_int(data, key)
+
+
+def _optional_channel_message_pairs(
+    data: Dict[str, Any],
+    key: str,
+) -> Tuple[Tuple[int, int], ...]:
+    """{チャンネルID: メッセージID} の辞書を (チャンネルID, メッセージID) の組にする（未設定なら空）。"""
+    raw = data.get(key) or {}
+    try:
+        return tuple(
+            (int(channel_id), int(message_id))
+            for channel_id, message_id in raw.items()
+        )
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise RainbowlConfigError(
+            "rainbowl設定の値が不正です。"
+            f" key={key}"
+            f" value={raw}"
         ) from exc
 
 
@@ -289,6 +325,14 @@ def build_rainbowl_config(
             rainbowl_config,
             "admin_role_ids",
         ),
+        agreed_role_id=_optional_positive_int(
+            rainbowl_config,
+            "agreed_role_id",
+        ),
+        agreement_messages=_optional_channel_message_pairs(
+            rainbowl_config,
+            "agreement_messages",
+        ),
     )
 
 
@@ -324,4 +368,30 @@ async def get_rainbowl_config(
     return build_rainbowl_config(
         guild_id=guild_id,
         guild_config=guild_config,
+    )
+
+
+async def set_rainbowl_fields(
+    guild_id: int,
+    fields: Dict[str, Any],
+) -> None:
+    """
+    rainbowl名前空間の中の指定キーだけを書き換える
+    （他のキー・他の名前空間は読み直して上書きしないので壊さない）。
+    """
+    names = {"#rainbowl": "rainbowl"}
+    values = {}
+    parts = []
+    for index, (key, value) in enumerate(fields.items()):
+        names[f"#k{index}"] = key
+        values[f":v{index}"] = value
+        parts.append(f"#rainbowl.#k{index} = :v{index}")
+
+    await asyncio.to_thread(
+        _guild_config_store.table.update_item,
+        Key={"guild_id": str(guild_id)},
+        UpdateExpression="SET " + ", ".join(parts),
+        ConditionExpression="attribute_exists(#rainbowl)",
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues=values,
     )

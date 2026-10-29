@@ -379,7 +379,9 @@ class RainbowlInterview(commands.Cog):
 
         await interaction.followup.send(
             "ありがとうございます！"
-            "新人ロールを付与しました。",
+            "規約・ルールのチャンネルが見えるようになりました。\n"
+            "それぞれ最後まで読み、同意する場合は一番下の⭕を押してください。"
+            "両方に押すと、ロール付与のチャンネルが見えるようになります。",
             ephemeral=True,
         )
 

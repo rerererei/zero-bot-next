@@ -970,7 +970,8 @@ async def process_profile_channel_post(
     on_messageから呼ばれる。男性/女性プロフィールチャンネルへの投稿を検知する。
 
     statusがACKNOWLEDGEDの場合のみNEWCOMERへ進め、
-    了承済みロールを外して新人ロールを付与し、本人専用チャンネルを削除する。
+    了承済みロール・規約同意済みロールを外して新人ロールを付与し、
+    本人専用チャンネルを削除する。
 
     成功した場合はTrue、対象外の場合はFalseを返す。
     """
@@ -994,23 +995,28 @@ async def process_profile_channel_post(
     if not transitioned:
         return False
 
-    acknowledged_role = guild.get_role(
-        config.acknowledged_role_id
-    )
     newcomer_role = guild.get_role(config.newcomer_role_id)
 
-    if (
-        acknowledged_role is not None
-        and acknowledged_role in member.roles
-    ):
+    roles_to_remove = [
+        role
+        for role in (
+            guild.get_role(config.acknowledged_role_id),
+            guild.get_role(config.agreed_role_id)
+            if config.agreed_role_id
+            else None,
+        )
+        if role is not None and role in member.roles
+    ]
+
+    if roles_to_remove:
         try:
             await member.remove_roles(
-                acknowledged_role,
+                *roles_to_remove,
                 reason="rainbowl: 新人へ移行",
             )
         except discord.HTTPException as exc:
             print(
-                "[rainbowl] acknowledged_role削除に"
+                "[rainbowl] 了承済み・規約同意済みロールの削除に"
                 "失敗しました"
                 f" guild_id={guild.id} user_id={member.id}"
                 f" error={exc}"
