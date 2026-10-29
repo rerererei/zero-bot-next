@@ -53,11 +53,15 @@ class RainbowlGuildConfig:
     admin_role_ids: Tuple[int, ...] = ()
 
     # 規約同意（任意。未設定なら規約同意の判定は行わない）。
-    # 了承済みの人が agreement_messages のすべてに⭕を押すと agreed_role_id を付与し、
-    # ロール付与チャンネルが見えるようになる（cogs/rainbowl_rules_agreement.py）。
-    agreed_role_id: int = 0
+    # 了承済みの人が agreement_messages のすべてに⭕を押すと、本人専用チャンネルに
+    # 性別選択ボタンを投稿する。押した性別の入会男性/入会女性ロールを付与し、
+    # その性別のプロフィールチャンネルが見えるようになる（cogs/rainbowl_rules_agreement.py）。
     # (チャンネルID, メッセージID) の組
     agreement_messages: Tuple[Tuple[int, int], ...] = ()
+    entry_male_role_id: int = 0
+    entry_female_role_id: int = 0
+    # プロフィール投稿を確認したら新人ロールと一緒に付与（ロール付与チャンネルを表示）
+    profile_done_role_id: int = 0
 
 
 def is_admin_like(
@@ -325,13 +329,21 @@ def build_rainbowl_config(
             rainbowl_config,
             "admin_role_ids",
         ),
-        agreed_role_id=_optional_positive_int(
-            rainbowl_config,
-            "agreed_role_id",
-        ),
         agreement_messages=_optional_channel_message_pairs(
             rainbowl_config,
             "agreement_messages",
+        ),
+        entry_male_role_id=_optional_positive_int(
+            rainbowl_config,
+            "entry_male_role_id",
+        ),
+        entry_female_role_id=_optional_positive_int(
+            rainbowl_config,
+            "entry_female_role_id",
+        ),
+        profile_done_role_id=_optional_positive_int(
+            rainbowl_config,
+            "profile_done_role_id",
         ),
     )
 

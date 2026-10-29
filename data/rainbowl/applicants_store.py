@@ -439,6 +439,50 @@ class RainbowlStore:
             raise
 
     # =============================
+    #    規約同意（⭕）→ 性別選択ボタンの投稿
+    # =============================
+    def mark_rules_agreed(
+        self,
+        guild_id: int,
+        user_id: int,
+        now_iso: str,
+    ) -> bool:
+        """
+        statusがACKNOWLEDGEDで、まだ規約同意を記録していない場合のみ
+        rules_agreed_atを記録する（性別選択ボタンの多重投稿防止）。
+
+        成功した場合はTrue、既に記録済み・対象外の場合はFalseを返す。
+        """
+        try:
+            self.table.update_item(
+                Key=self._key(guild_id, user_id),
+                UpdateExpression=(
+                    "SET rules_agreed_at = :now,"
+                    " updated_at = :now"
+                ),
+                ConditionExpression=(
+                    "#status = :acknowledged"
+                    " AND attribute_not_exists(rules_agreed_at)"
+                ),
+                ExpressionAttributeNames={
+                    "#status": "status",
+                },
+                ExpressionAttributeValues={
+                    ":acknowledged": "ACKNOWLEDGED",
+                    ":now": now_iso,
+                },
+            )
+            return True
+
+        except ClientError as exc:
+            if (
+                exc.response["Error"]["Code"]
+                == "ConditionalCheckFailedException"
+            ):
+                return False
+            raise
+
+    # =============================
     #    プロフィールチャンネルへの初回投稿
     # =============================
     def set_newcomer(

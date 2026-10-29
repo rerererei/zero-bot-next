@@ -970,7 +970,7 @@ async def process_profile_channel_post(
     on_messageから呼ばれる。男性/女性プロフィールチャンネルへの投稿を検知する。
 
     statusがACKNOWLEDGEDの場合のみNEWCOMERへ進め、
-    了承済みロール・規約同意済みロールを外して新人ロールを付与し、
+    了承済みロールを外して新人ロール・プロフ記載済みロールを付与し、
     本人専用チャンネルを削除する。
 
     成功した場合はTrue、対象外の場合はFalseを返す。
@@ -995,42 +995,48 @@ async def process_profile_channel_post(
     if not transitioned:
         return False
 
-    newcomer_role = guild.get_role(config.newcomer_role_id)
+    acknowledged_role = guild.get_role(
+        config.acknowledged_role_id
+    )
 
-    roles_to_remove = [
-        role
-        for role in (
-            guild.get_role(config.acknowledged_role_id),
-            guild.get_role(config.agreed_role_id)
-            if config.agreed_role_id
-            else None,
-        )
-        if role is not None and role in member.roles
-    ]
-
-    if roles_to_remove:
+    if (
+        acknowledged_role is not None
+        and acknowledged_role in member.roles
+    ):
         try:
             await member.remove_roles(
-                *roles_to_remove,
+                acknowledged_role,
                 reason="rainbowl: 新人へ移行",
             )
         except discord.HTTPException as exc:
             print(
-                "[rainbowl] 了承済み・規約同意済みロールの削除に"
+                "[rainbowl] acknowledged_role削除に"
                 "失敗しました"
                 f" guild_id={guild.id} user_id={member.id}"
                 f" error={exc}"
             )
 
-    if newcomer_role is not None:
+    # 新人ロールと、ロール付与チャンネルを見せるプロフ記載済みロール
+    roles_to_add = [
+        role
+        for role in (
+            guild.get_role(config.newcomer_role_id),
+            guild.get_role(config.profile_done_role_id)
+            if config.profile_done_role_id
+            else None,
+        )
+        if role is not None
+    ]
+
+    if roles_to_add:
         try:
             await member.add_roles(
-                newcomer_role,
+                *roles_to_add,
                 reason="rainbowl: 新人へ移行",
             )
         except discord.HTTPException as exc:
             print(
-                "[rainbowl] newcomer_role付与に"
+                "[rainbowl] 新人・プロフ記載済みロールの付与に"
                 "失敗しました"
                 f" guild_id={guild.id} user_id={member.id}"
                 f" error={exc}"
