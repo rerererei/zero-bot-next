@@ -5,11 +5,12 @@
 - 管理ログ：ロールの付与・剥奪
 - 編集ログ：テキストチャンネル・VCインチャ・スレッドでのメッセージ編集
 - 削除ログ：テキストチャンネル・VCインチャ・スレッドでのメッセージ削除
-- VCログ：ボイスチャンネルへの入退室（音楽Botなどの入退室も記録する）
+- VCログ：ボイスチャンネルへの入退室
 - 参加ログ：サーバーへの参加（表示名・ユーザー名・ID・アカウント作成日）
 - 退出ログ：サーバーからの脱退（自主退出・Kick・Banを区別せずまとめて記録）
 
-VCログ以外は、Botユーザーのメッセージ・ロールは対象外（人間の操作のみ記録する）。
+参加ログ・退出ログはBotも記録する。
+それ以外（管理ログ・編集ログ・削除ログ・VCログ）は、Botユーザーは対象外（人間の操作のみ記録する）。
 投稿先チャンネルは guild_config["server_logs"] にギルドごとに設定し、
 未設定のギルドには一切影響しない。
 
@@ -195,6 +196,8 @@ class ServerLogsCog(commands.Cog):
         before: discord.VoiceState,
         after: discord.VoiceState,
     ) -> None:
+        if member.bot:
+            return
         if before.channel == after.channel:
             return
 
@@ -215,9 +218,6 @@ class ServerLogsCog(commands.Cog):
     # ========================================
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
-        if member.bot:
-            return
-
         try:
             await server_log_service.send_member_join_log(member)
         except Exception as exc:
@@ -228,9 +228,6 @@ class ServerLogsCog(commands.Cog):
     # ========================================
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:
-        if member.bot:
-            return
-
         try:
             await server_log_service.send_member_leave_log(member)
         except Exception as exc:
