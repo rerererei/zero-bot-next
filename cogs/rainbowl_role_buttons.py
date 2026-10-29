@@ -10,6 +10,7 @@ rainbowl専用：セルフサービスのロール付与ボタン。
 （カテゴリーごとに1メッセージ）。
 """
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -18,6 +19,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from data.guild_config_store import GuildConfigStore
 from services.rainbowl_config_service import (
     RainbowlConfigError,
     RainbowlConfigNotFoundError,
@@ -33,6 +35,8 @@ ROLE_TOGGLE_CUSTOM_ID_PREFIX = "rainbowl_role_toggle:"
 TOGGLE_COOLDOWN_SECONDS = 1.0
 
 MAX_ROWS_PER_VIEW = 5
+
+_guild_config_store = GuildConfigStore()
 
 
 def load_role_buttons_data() -> List[Dict[str, Any]]:
@@ -175,6 +179,58 @@ class RainbowlRoleButtons(commands.Cog):
             )
             return None
 
+    async def _remove_entry_roles_on_gender(
+        self,
+        member: discord.Member,
+        role: discord.Role,
+    ) -> None:
+        """
+        性別ロール（profile.gender_roles）を付けたら、入会フロー用の
+        入会男性・入会女性・プロフ記載済みロールを外す。
+        """
+        guild_config = await asyncio.to_thread(
+            _guild_config_store.get_config,
+            member.guild.id,
+        )
+        gender_roles = (
+            (guild_config or {}).get("profile") or {}
+        ).get("gender_roles") or {}
+        gender_role_ids = {
+            int(entry["role_id"])
+            for entry in gender_roles.values()
+            if isinstance(entry, dict) and entry.get("role_id")
+        }
+        if role.id not in gender_role_ids:
+            return
+
+        config = await self._get_config(member.guild.id)
+        if config is None:
+            return
+
+        roles_to_remove = [
+            r
+            for r in member.roles
+            if r.id in {
+                config.entry_male_role_id,
+                config.entry_female_role_id,
+                config.profile_done_role_id,
+            }
+        ]
+        if not roles_to_remove:
+            return
+
+        try:
+            await member.remove_roles(
+                *roles_to_remove,
+                reason="rainbowl: 性別ロール取得につき入会フロー用ロールを外す",
+            )
+        except discord.HTTPException as exc:
+            print(
+                "[rainbowl] 入会フロー用ロールの削除に失敗しました"
+                f" guild_id={member.guild.id}"
+                f" user_id={member.id} error={exc}"
+            )
+
     # ========================================
     # ロール付与/剥奪ボタン
     # ========================================
@@ -242,6 +298,7 @@ class RainbowlRoleButtons(commands.Cog):
                     f"「{role.name}」ロールを付与しました。",
                     ephemeral=True,
                 )
+                await self._remove_entry_roles_on_gender(member, role)
         except discord.HTTPException as exc:
             print(
                 "[rainbowl] ロールボタンの処理に失敗しました"

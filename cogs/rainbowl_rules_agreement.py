@@ -313,11 +313,23 @@ class RainbowlRulesAgreement(commands.Cog):
             )
             return
 
-        await interaction.followup.send(
+        guide_text = (
             f"<#{profile_channel_id}> が見えるようになりました。\n"
-            "プロフィールを投稿すると、ロール付与のチャンネルが見えるようになります。",
-            ephemeral=True,
+            "プロフィールを投稿すると、ロール付与のチャンネルが見えるようになります。"
         )
+
+        # あとから読み返せるよう、本人専用チャンネルへ通常の投稿として残す
+        try:
+            await interaction.channel.send(f"{member.mention}\n{guide_text}")
+        except discord.HTTPException:
+            await interaction.followup.send(guide_text, ephemeral=True)
+            return
+
+        # 「考え中…」の本人だけに見える表示を消す
+        try:
+            await interaction.delete_original_response()
+        except discord.HTTPException:
+            pass
 
     # ========================================
     # 管理者コマンド

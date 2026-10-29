@@ -377,13 +377,30 @@ class RainbowlInterview(commands.Cog):
             )
             return
 
-        await interaction.followup.send(
+        guide_text = (
             "ありがとうございます！"
             "規約・ルールのチャンネルが見えるようになりました。\n"
             "それぞれ最後まで読み、同意する場合は一番下の⭕を押してください。"
-            "両方に押すと、このチャンネルに性別を選ぶボタンが届きます。",
-            ephemeral=True,
+            "両方に押すと、このチャンネルに性別を選ぶボタンが届きます。"
         )
+
+        # あとから読み返せるよう、本人専用チャンネルへ通常の投稿として残す
+        try:
+            await interaction.channel.send(
+                f"{interaction.user.mention}\n{guide_text}"
+            )
+        except discord.HTTPException:
+            await interaction.followup.send(
+                guide_text,
+                ephemeral=True,
+            )
+            return
+
+        # 「考え中…」の本人だけに見える表示を消す
+        try:
+            await interaction.delete_original_response()
+        except discord.HTTPException:
+            pass
 
     # ========================================
     # 合否判定コマンド
