@@ -108,7 +108,7 @@ class ServerLogsCog(commands.Cog):
         author = (
             cached.author
             if cached is not None
-            else await self._resolve_author(int(author_id))
+            else await self._resolve_author(guild, int(author_id))
         )
 
         try:
@@ -172,7 +172,11 @@ class ServerLogsCog(commands.Cog):
             return None
         return channel
 
-    async def _resolve_author(self, user_id: int):
+    async def _resolve_author(self, guild: discord.Guild, user_id: int):
+        # サーバーで設定したアイコンを使うため、メンバーとして取れればそちらを優先
+        member = guild.get_member(user_id)
+        if member is not None:
+            return member
         user = self.bot.get_user(user_id)
         if user is not None:
             return user

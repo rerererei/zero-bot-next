@@ -305,7 +305,8 @@ class RainbowlMemberStatus(commands.Cog):
             color=discord.Color.teal(),
             timestamp=discord.utils.utcnow(),
         )
-        embed.set_thumbnail(url=target.display_avatar.url)
+        # サーバーで設定したアイコンを使うため、在籍中ならメンバーのものを使う
+        embed.set_thumbnail(url=(member or target).display_avatar.url)
 
         sections = [
             ("👤 Discord", _discord_section(guild, target, member, rb_config)),

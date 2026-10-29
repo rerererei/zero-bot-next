@@ -945,10 +945,7 @@ class ZBAdmin(commands.Cog):
         )
 
         # ⭐ アイコン表示（thumbnail）
-        if target.avatar:
-            embed.set_thumbnail(url=target.avatar.url)
-        else:
-            embed.set_thumbnail(url=target.default_avatar.url)
+        embed.set_thumbnail(url=target.display_avatar.url)
 
         await interaction.followup.send(embed=embed)
 
